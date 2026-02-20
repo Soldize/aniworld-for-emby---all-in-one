@@ -1,0 +1,23 @@
+[api]
+# AniWorld API Server (für Anime-Daten + Stream-Resolution)
+server = 192.168.178.96
+port = 5080
+
+[metadata]
+# AniWorld Metadata Server (für Cover, Beschreibungen, Genres)
+server = 192.168.178.96
+port = 5090
+
+[proxy]
+# Lokaler Proxy-Port (für .strm Redirect)
+port = 5081
+
+[sync]
+# Pfad für .strm/.nfo Dateien (Emby Library zeigt hierhin)
+media_path = /media/aniworld
+
+[preferences]
+language = Deutsch
+# Sprach-Priorität: Deutsch, GerSub, EngSub
+hoster = VOE
+# Hoster-Priorität: VOE, Vidmoly, Doodstream, Streamtape, Filemoon

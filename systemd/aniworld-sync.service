@@ -1,0 +1,10 @@
+[Unit]
+Description=AniWorld Sync Service
+After=network.target
+
+[Service]
+Type=oneshot
+User=emby
+Group=emby
+ExecStart=/usr/bin/python3 /opt/aniworld-sync-proxy/sync.py
+Environment=ANIWORLD_CONFIG=/etc/aniworld/config.ini

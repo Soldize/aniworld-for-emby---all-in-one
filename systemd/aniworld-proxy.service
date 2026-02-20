@@ -1,0 +1,15 @@
+[Unit]
+Description=AniWorld Stream Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=emby
+Group=emby
+ExecStart=/usr/bin/python3 /opt/aniworld-sync-proxy/proxy.py
+Environment=ANIWORLD_CONFIG=/etc/aniworld/config.ini
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
