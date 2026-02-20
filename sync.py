@@ -19,15 +19,13 @@ CONFIG_PATH = os.environ.get("ANIWORLD_CONFIG", "/etc/aniworld/config.ini")
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
-API_SERVER = config.get("api", "server", fallback="localhost")
 API_PORT = config.getint("api", "port", fallback=5080)
-META_SERVER = config.get("metadata", "server", fallback="localhost")
 META_PORT = config.getint("metadata", "port", fallback=5090)
 PROXY_PORT = config.getint("proxy", "port", fallback=5081)
 MEDIA_PATH = config.get("sync", "media_path", fallback="/media/aniworld")
 
-API_BASE = f"http://{API_SERVER}:{API_PORT}"
-META_BASE = f"http://{META_SERVER}:{META_PORT}"
+API_BASE = f"http://localhost:{API_PORT}"
+META_BASE = f"http://localhost:{META_PORT}"
 PROXY_BASE = f"http://localhost:{PROXY_PORT}"
 
 logging.basicConfig(
@@ -65,21 +63,43 @@ def fetch_all_anime():
         return []
 
 
-def fetch_episodes(slug):
-    """Fetch episodes for an anime from API server."""
+def fetch_anime_detail(slug):
+    """Fetch anime detail (seasons, hasMovies) from API server."""
     try:
-        resp = requests.get(f"{API_BASE}/api/anime/{slug}/episodes", timeout=30)
+        resp = requests.get(f"{API_BASE}/api/anime/{slug}", timeout=30)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
-        log.error(f"Failed to fetch episodes for {slug}: {e}")
+        log.error(f"Failed to fetch detail for {slug}: {e}")
+        return None
+
+
+def fetch_season_episodes(slug, season_num):
+    """Fetch episodes for a specific season from API server."""
+    try:
+        resp = requests.get(f"{API_BASE}/api/anime/{slug}/season/{season_num}/episodes", timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        log.error(f"Failed to fetch episodes for {slug} S{season_num}: {e}")
+        return []
+
+
+def fetch_film_episodes(slug):
+    """Fetch film episodes from API server."""
+    try:
+        resp = requests.get(f"{API_BASE}/api/anime/{slug}/films/episodes", timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        log.error(f"Failed to fetch films for {slug}: {e}")
         return []
 
 
 def fetch_metadata(slug):
     """Fetch metadata from Metadata server."""
     try:
-        resp = requests.get(f"{META_BASE}/api/metadata/{slug}", timeout=15)
+        resp = requests.get(f"{META_BASE}/metadata/{slug}", timeout=15)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -171,52 +191,72 @@ def sync_anime(anime, metadata):
         cover_url = anime["coverUrl"]
 
     if cover_url:
-        # Try to get from metadata server first
         ext = "jpg"
         if ".png" in cover_url:
             ext = "png"
         poster_path = os.path.join(show_dir, f"poster.{ext}")
-        meta_cover = f"{META_BASE}/api/cover/{slug}"
+        meta_cover = f"{META_BASE}/cover/{slug}"
         if not download_cover(meta_cover, poster_path):
             download_cover(cover_url, poster_path)
 
-    # Fetch and write episodes
-    episodes = fetch_episodes(slug)
-    if not episodes:
+    # Fetch anime detail for season info
+    detail = fetch_anime_detail(slug)
+    if not detail:
         return 0
 
     ep_count = 0
-    for ep in episodes:
-        season = ep.get("season", 1)
-        ep_num = ep.get("episode", 1)
-        ep_title = ep.get("title", f"Episode {ep_num}")
+    seasons = detail.get("seasons", [])
+    has_movies = detail.get("hasMovies", False)
 
-        # Season directory
-        if season == 0:
-            season_dir = os.path.join(show_dir, "Specials")
-        else:
-            season_dir = os.path.join(show_dir, f"Season {season:02d}")
-        os.makedirs(season_dir, exist_ok=True)
+    # Regular seasons
+    for s in seasons:
+        season_num = s.get("number", 1)
+        episodes = fetch_season_episodes(slug, season_num)
+        for ep in episodes:
+            ep_num = ep.get("episodeNumber", 1)
+            ep_title = ep.get("title", f"Episode {ep_num}")
+            ep_count += _write_episode(show_dir, safe_name, name, slug, season_num, ep_num, ep_title)
 
-        # Filename: "Anime - SXXEXX - Title.strm"
-        safe_title = safe_filename(ep_title)
-        if season == 0:
-            base_name = f"{safe_name} - S00E{ep_num:02d} - {safe_title}"
-        else:
-            base_name = f"{safe_name} - S{season:02d}E{ep_num:02d} - {safe_title}"
-
-        strm_path = os.path.join(season_dir, f"{base_name}.strm")
-        nfo_path = os.path.join(season_dir, f"{base_name}.nfo")
-
-        # Only write .strm if it doesn't exist (URLs are stable via proxy)
-        if not os.path.exists(strm_path):
-            write_strm(strm_path, slug, season, ep_num)
-            ep_count += 1
-
-        # Always update .nfo (metadata might change)
-        write_episode_nfo(nfo_path, name, season, ep_num, ep_title)
+    # Films (season 0)
+    if has_movies:
+        films = fetch_film_episodes(slug)
+        for ep in films:
+            ep_num = ep.get("episodeNumber", 1)
+            ep_title = ep.get("title", f"Film {ep_num}")
+            ep_count += _write_episode(show_dir, safe_name, name, slug, 0, ep_num, ep_title)
 
     return ep_count
+
+
+def _write_episode(show_dir, safe_name, anime_name, slug, season, ep_num, ep_title):
+    """Write a single .strm + .nfo episode. Returns 1 if new, 0 if already exists."""
+
+    # Season directory
+    if season == 0:
+        season_dir = os.path.join(show_dir, "Specials")
+    else:
+        season_dir = os.path.join(show_dir, f"Season {season:02d}")
+    os.makedirs(season_dir, exist_ok=True)
+
+    # Filename: "Anime - SXXEXX - Title.strm"
+    safe_title = safe_filename(ep_title)
+    if season == 0:
+        base_name = f"{safe_name} - S00E{ep_num:02d} - {safe_title}"
+    else:
+        base_name = f"{safe_name} - S{season:02d}E{ep_num:02d} - {safe_title}"
+
+    strm_path = os.path.join(season_dir, f"{base_name}.strm")
+    nfo_path = os.path.join(season_dir, f"{base_name}.nfo")
+
+    new = 0
+    # Only write .strm if it doesn't exist (URLs are stable via proxy)
+    if not os.path.exists(strm_path):
+        write_strm(strm_path, slug, season, ep_num)
+        new = 1
+
+    # Always update .nfo (metadata might change)
+    write_episode_nfo(nfo_path, anime_name, season, ep_num, ep_title)
+    return new
 
 
 def main():

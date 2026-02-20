@@ -1,15 +1,17 @@
 [api]
-# AniWorld API Server (für Anime-Daten + Stream-Resolution)
-server = 192.168.178.96
+# AniWorld API Server (Scraping + Stream-Resolution)
 port = 5080
+db_path = /opt/aniworld/data/aniworld.db
 
 [metadata]
-# AniWorld Metadata Server (für Cover, Beschreibungen, Genres)
-server = 192.168.178.96
+# AniWorld Metadata Server (AniList/MAL/AniDB)
 port = 5090
+db_path = /opt/aniworld/data/metadata.db
+covers_dir = /opt/aniworld/data/covers
+anidb_titles_path = /opt/aniworld/data/anidb-titles.xml.gz
 
 [proxy]
-# Lokaler Proxy-Port (für .strm Redirect)
+# Stream Proxy (für .strm Redirect)
 port = 5081
 
 [sync]
@@ -18,6 +20,4 @@ media_path = /media/aniworld
 
 [preferences]
 language = Deutsch
-# Sprach-Priorität: Deutsch, GerSub, EngSub
 hoster = VOE
-# Hoster-Priorität: VOE, Vidmoly, Doodstream, Streamtape, Filemoon

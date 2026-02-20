@@ -1,12 +1,12 @@
 [Unit]
-Description=AniWorld Stream Proxy
+Description=AniWorld Metadata Server
 After=network.target aniworld-api.service
 
 [Service]
 Type=simple
 User=emby
 Group=emby
-ExecStart=/opt/aniworld/venv/bin/python3 /opt/aniworld/proxy.py
+ExecStart=/opt/aniworld/venv/bin/python3 /opt/aniworld/metadata_server.py
 Environment=ANIWORLD_CONFIG=/etc/aniworld/config.ini
 Restart=always
 RestartSec=5

@@ -1,12 +1,12 @@
 [Unit]
-Description=AniWorld Stream Proxy
-After=network.target aniworld-api.service
+Description=AniWorld API Server
+After=network.target
 
 [Service]
 Type=simple
 User=emby
 Group=emby
-ExecStart=/opt/aniworld/venv/bin/python3 /opt/aniworld/proxy.py
+ExecStart=/opt/aniworld/venv/bin/python3 /opt/aniworld/api_server.py
 Environment=ANIWORLD_CONFIG=/etc/aniworld/config.ini
 Restart=always
 RestartSec=5

@@ -19,13 +19,12 @@ CONFIG_PATH = os.environ.get("ANIWORLD_CONFIG", "/etc/aniworld/config.ini")
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
 
-API_SERVER = config.get("api", "server", fallback="localhost")
 API_PORT = config.getint("api", "port", fallback=5080)
 PROXY_PORT = config.getint("proxy", "port", fallback=5081)
 PREF_LANGUAGE = config.get("preferences", "language", fallback="Deutsch")
 PREF_HOSTER = config.get("preferences", "hoster", fallback="VOE")
 
-API_BASE = f"http://{API_SERVER}:{API_PORT}"
+API_BASE = f"http://localhost:{API_PORT}"
 
 logging.basicConfig(
     level=logging.INFO,
