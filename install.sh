@@ -462,119 +462,72 @@ check_for_updates() {
         return
     fi
 
-    # Lokale Version
-    local local_version
-    local_version=$(get_local_version)
-    echo -e "  Installierte Version: ${CYAN}$local_version${NC}"
+    # Dateien von GitHub laden und gegen lokale vergleichen (Hash-Check)
+    echo -e "  Vergleiche lokale Dateien mit GitHub..."
+    echo ""
 
-    # GitHub: neuestes Release holen
-    echo -e "  Frage GitHub nach neuester Version..."
-    local api_response
-    api_response=$(curl -s "$GITHUB_API/releases/latest" 2>/dev/null)
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    local has_updates=false
+    local update_files=""
 
-    if echo "$api_response" | grep -q '"tag_name"'; then
-        local remote_version
-        remote_version=$(echo "$api_response" | grep -oP '"tag_name":\s*"\K[^"]+')
-        local published
-        published=$(echo "$api_response" | grep -oP '"published_at":\s*"\K[^"]+' | cut -d'T' -f1)
-        local body
-        body=$(echo "$api_response" | grep -oP '"body":\s*"\K[^"]*' | head -1)
-
-        echo -e "  Neueste Version:      ${CYAN}$remote_version${NC} (${published})"
-        echo ""
-
-        if [ "$local_version" = "$remote_version" ]; then
-            echo -e "  ${GREEN}✅ Du bist auf dem neuesten Stand!${NC}"
-            echo ""
-            read -p "Drücke Enter für Menü..."
-            return
-        fi
-
-        # Es gibt ein Update
-        echo -e "  ${YELLOW}⬆️  Update verfügbar: $local_version → $remote_version${NC}"
-        echo ""
-
-        # Changelog anzeigen falls vorhanden
-        if [ -n "$body" ]; then
-            echo -e "  ${BOLD}Changelog:${NC}"
-            echo "$body" | sed 's/\\r\\n/\n/g; s/\\n/\n/g' | sed 's/^/    /'
-            echo ""
-        fi
-
-        read -p "Update jetzt installieren? (j/n): " do_update
-        if [ "$do_update" != "j" ] && [ "$do_update" != "J" ] && [ "$do_update" != "ja" ]; then
-            echo "Update übersprungen."
-            return
-        fi
-
-        echo ""
-        perform_github_update "$remote_version"
-    else
-        # Kein Release gefunden - Fallback auf Commits
-        echo -e "  ${YELLOW}Kein Release gefunden, prüfe letzten Commit...${NC}"
-        local commit_response
-        commit_response=$(curl -s "$GITHUB_API/commits/main" 2>/dev/null)
-
-        if echo "$commit_response" | grep -q '"sha"'; then
-            local remote_sha
-            remote_sha=$(echo "$commit_response" | grep -oP '"sha":\s*"\K[^"]+' | head -1)
-            local remote_short="${remote_sha:0:7}"
-            local commit_msg
-            commit_msg=$(echo "$commit_response" | grep -oP '"message":\s*"\K[^"]*' | head -1)
-            local commit_date
-            commit_date=$(echo "$commit_response" | grep -oP '"date":\s*"\K[^"]+' | head -1 | cut -d'T' -f1)
-
-            echo -e "  Letzter Commit: ${CYAN}$remote_short${NC} (${commit_date})"
-            echo -e "  Message: $commit_msg"
-            echo ""
-
-            if [ "$local_version" = "$remote_short" ]; then
-                echo -e "  ${GREEN}✅ Du bist auf dem neuesten Stand!${NC}"
-                echo ""
-                read -p "Drücke Enter für Menü..."
-                return
+    for f in $REQUIRED_FILES; do
+        if curl -sfL "$GITHUB_RAW/$f" -o "$tmp_dir/$f" 2>/dev/null; then
+            local local_hash="none"
+            local remote_hash=""
+            if [ -f "$INSTALL_DIR/$f" ]; then
+                local_hash=$(md5sum "$INSTALL_DIR/$f" 2>/dev/null | cut -d' ' -f1)
             fi
+            remote_hash=$(md5sum "$tmp_dir/$f" 2>/dev/null | cut -d' ' -f1)
 
-            echo -e "  ${YELLOW}⬆️  Update verfügbar: $local_version → $remote_short${NC}"
-            echo ""
-
-            read -p "Update jetzt installieren? (j/n): " do_update
-            if [ "$do_update" != "j" ] && [ "$do_update" != "J" ] && [ "$do_update" != "ja" ]; then
-                echo "Update übersprungen."
-                return
+            if [ "$local_hash" != "$remote_hash" ]; then
+                echo -e "  ${YELLOW}⬆️  $f${NC} - Update verfügbar"
+                has_updates=true
+                update_files="$update_files $f"
+            else
+                echo -e "  ${GREEN}✅ $f${NC} - aktuell"
             fi
-
-            echo ""
-            perform_github_update "$remote_short"
         else
-            echo -e "${RED}Konnte GitHub nicht erreichen. Prüfe deine Internetverbindung.${NC}"
+            echo -e "  ${RED}❌ $f${NC} - Download fehlgeschlagen"
         fi
-    fi
-}
-
-perform_github_update() {
-    local new_version="$1"
+    done
 
     echo ""
 
-    # Dateien von GitHub laden
-    download_files
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Update fehlgeschlagen!${NC}"
+    if ! $has_updates; then
+        echo -e "  ${GREEN}✅ Alle Dateien sind auf dem neuesten Stand!${NC}"
+        rm -rf "$tmp_dir"
+        echo ""
         read -p "Drücke Enter für Menü..."
         return
     fi
 
-    # Python Pakete aktualisieren
+    echo -e "  ${YELLOW}Updates verfügbar für:${BOLD}$update_files${NC}"
+    echo ""
+    read -p "Update jetzt installieren? (j/n): " do_update
+    if [ "$do_update" != "j" ] && [ "$do_update" != "J" ] && [ "$do_update" != "ja" ]; then
+        echo "Update übersprungen."
+        rm -rf "$tmp_dir"
+        return
+    fi
+
+    # Dateien kopieren
+    echo ""
+    echo -e "${YELLOW}Aktualisiere Dateien...${NC}"
+    for f in $REQUIRED_FILES; do
+        if [ -f "$tmp_dir/$f" ]; then
+            cp "$tmp_dir/$f" "$INSTALL_DIR/$f"
+            echo -e "  ${GREEN}✅ $f${NC}"
+        fi
+    done
+    rm -rf "$tmp_dir"
+
+    echo -e "${GREEN}✅ Dateien aktualisiert${NC}"
+
+    # Berechtigungen + venv + Restart
+    set_permissions
     install_venv
 
-    # Berechtigungen setzen
-    set_permissions
-
-    # Version speichern
-    save_version "$new_version"
-
-    # Services neustarten
     echo ""
     echo -e "${YELLOW}Starte Services neu...${NC}"
     systemctl daemon-reload
@@ -586,12 +539,18 @@ perform_github_update() {
     sleep 2
     systemctl enable --now aniworld-sync.timer 2>/dev/null || true
 
-    # Verifizieren
     echo ""
     verify_services
 
+    # Version speichern
+    local ver=""
+    ver=$(curl -s "$GITHUB_API/commits/main" 2>/dev/null | grep -oP '"sha":\s*"\K[^"]+' | head -1 || true)
+    if [ -n "$ver" ]; then
+        save_version "${ver:0:7}"
+    fi
+
     echo -e "${GREEN}=========================================${NC}"
-    echo -e "${GREEN} ✅ Update auf $new_version abgeschlossen!${NC}"
+    echo -e "${GREEN} ✅ Update abgeschlossen!${NC}"
     echo -e "${GREEN}=========================================${NC}"
     echo -e "📊 Dashboard: http://localhost:$PROXY_PORT/"
     echo ""
