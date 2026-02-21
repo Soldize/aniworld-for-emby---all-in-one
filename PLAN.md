@@ -115,10 +115,12 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] Detail-Ansicht: Cover, Beschreibung, Staffel-Buttons
 - [x] Episoden-Liste pro Staffel + Filme
 
-#### Dashboard: Log-Viewer (eigener Tab)
-- [ ] Eigener Tab im Dashboard
-- [ ] Live-Logs von API-Server + Metadata-Server
-- [ ] Filter nach Level (INFO/WARNING/ERROR)
+#### Dashboard: Log-Viewer (eigener Tab) ✅
+- [x] Eigener Tab im Dashboard (📋 Logs)
+- [x] Logs von API-Server, Metadata-Server, Proxy (via journalctl)
+- [x] Filter nach Level (INFO/WARNING/ERROR)
+- [x] Auto-Refresh Toggle (alle 3s)
+- [x] Farbcodiert (blau=INFO, gelb=WARNING, rot=ERROR)
 
 #### Dashboard: Auth/Passwort-Schutz ✅
 - [x] Bei Installation: Passwort anlegen (Pflicht)

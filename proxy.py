@@ -547,6 +547,29 @@ async def catalog_episodes(slug: str, season_num: int, request: Request):
         raise HTTPException(status_code=502, detail="API Server nicht erreichbar")
 
 
+# ========================
+# Log Viewer API
+# ========================
+
+@app.get("/api/dashboard/logs/{service}")
+async def get_service_logs(service: str, request: Request, lines: int = 100, level: str = ""):
+    """Get logs for a service via journalctl."""
+    allowed = {"api": "aniworld-api", "metadata": "aniworld-metadata", "proxy": "aniworld-proxy"}
+    unit = allowed.get(service)
+    if not unit:
+        raise HTTPException(status_code=400, detail=f"Unbekannter Service: {service}")
+    try:
+        cmd = ["journalctl", "-u", unit, f"-n{lines}", "--no-pager", "-o", "short-iso"]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        log_lines = result.stdout.strip().split("\n") if result.stdout.strip() else []
+        if level:
+            level_upper = level.upper()
+            log_lines = [l for l in log_lines if level_upper in l.upper()]
+        return {"service": service, "unit": unit, "lines": log_lines, "total": len(log_lines)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/dashboard/catalog/anime/{slug}/films/episodes")
 async def catalog_films(slug: str, request: Request):
     try:
@@ -662,6 +685,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <div class="tabs">
   <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
   <button class="tab" onclick="switchTab('catalog')">🔍 Katalog</button>
+  <button class="tab" onclick="switchTab('logs')">📋 Logs</button>
 </div>
 
 <!-- Tab: Dashboard -->
@@ -756,6 +780,30 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div id="catalog-detail" style="display:none;"></div>
   </div>
 </div><!-- /tab-catalog -->
+
+<!-- Tab: Logs -->
+<div id="tab-logs" style="display:none;">
+  <div class="section">
+    <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center;">
+      <button class="letter-btn active" onclick="loadLogs('api', this)">API Server</button>
+      <button class="letter-btn" onclick="loadLogs('metadata', this)">Metadata Server</button>
+      <button class="letter-btn" onclick="loadLogs('proxy', this)">Proxy</button>
+      <span style="color:var(--muted); margin-left:8px;">Filter:</span>
+      <select id="log-level" onchange="reloadLogs()" style="padding:4px 8px; border:1px solid var(--border);
+        border-radius:4px; background:var(--surface); color:var(--text); font-size:0.85rem;">
+        <option value="">Alle</option>
+        <option value="INFO">INFO</option>
+        <option value="WARNING">WARNING</option>
+        <option value="ERROR">ERROR</option>
+      </select>
+      <button class="btn btn-save" onclick="reloadLogs()" style="padding:4px 12px; font-size:0.8rem;">🔄 Aktualisieren</button>
+      <label style="font-size:0.8rem; color:var(--muted); display:flex; align-items:center; gap:4px;">
+        <input type="checkbox" id="log-auto" onchange="toggleAutoLog()"> Auto-Refresh
+      </label>
+    </div>
+    <div class="log-box" id="log-viewer" style="height:60vh; max-height:700px;"></div>
+  </div>
+</div><!-- /tab-logs -->
 
 <div class="toast" id="toast"></div>
 
@@ -1060,12 +1108,10 @@ async function changePw() {
 // === Tab Navigation ===
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
-  document.getElementById('tab-catalog').style.display = tab === 'catalog' ? '' : 'none';
+  ['dashboard','catalog','logs'].forEach(t => document.getElementById('tab-'+t).style.display = t===tab?'':'none');
   event.target.classList.add('active');
-  if (tab === 'catalog' && !document.getElementById('catalog-letters').innerHTML) {
-    loadLetters();
-  }
+  if (tab === 'catalog' && !document.getElementById('catalog-letters').innerHTML) loadLetters();
+  if (tab === 'logs' && !document.getElementById('log-viewer').innerHTML) loadLogs('api');
 }
 
 // === Katalog ===
@@ -1203,6 +1249,43 @@ async function loadEpisodes(slug, season) {
 function backToList() {
   document.getElementById('catalog-detail').style.display = 'none';
   document.getElementById('catalog-list').style.display = '';
+}
+
+// === Log Viewer ===
+let currentLogService = 'api';
+let logAutoInterval = null;
+
+async function loadLogs(service, btn) {
+  currentLogService = service;
+  if (btn) {
+    document.querySelectorAll('#tab-logs .letter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  const level = document.getElementById('log-level').value;
+  const viewer = document.getElementById('log-viewer');
+  try {
+    const r = await fetch(API + '/api/dashboard/logs/' + service + '?lines=200' + (level ? '&level=' + level : ''));
+    const data = await r.json();
+    viewer.innerHTML = data.lines.map(line => {
+      let cls = '';
+      if (line.includes('ERROR')) cls = 'error';
+      else if (line.includes('WARNING')) cls = 'warn';
+      else if (line.includes('INFO')) cls = 'info';
+      return `<div class="${cls}">${line.replace(/</g,'&lt;')}</div>`;
+    }).join('');
+    viewer.scrollTop = viewer.scrollHeight;
+  } catch(e) { viewer.innerHTML = '<div class="error">Fehler beim Laden: ' + e + '</div>'; }
+}
+
+function reloadLogs() { loadLogs(currentLogService); }
+
+function toggleAutoLog() {
+  if (document.getElementById('log-auto').checked) {
+    logAutoInterval = setInterval(reloadLogs, 3000);
+  } else {
+    clearInterval(logAutoInterval);
+    logAutoInterval = null;
+  }
 }
 
 // Init
