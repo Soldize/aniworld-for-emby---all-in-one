@@ -131,11 +131,14 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] /play/* offen für Emby, Dashboard geschützt
 - [x] SHA-256 + Salt, auth.json in /etc/aniworld/
 
-#### Emby Library Auto-Setup
-- [ ] Bei Installation fragen: "Wie soll die Library heißen?" (Default: AniWorld)
-- [ ] Library in Emby automatisch anlegen (via Emby API)
-- [ ] Nur anlegen, NICHT aktualisieren (User macht Library-Scan selbst nach erstem Sync)
-- [ ] Emby API-Key abfragen bei Installation
+#### Emby Library Auto-Setup ✅
+- [x] Bei Installation fragen: "Library anlegen?" (optional)
+- [x] Emby URL + API-Key abfragen + validieren
+- [x] Library-Name wählbar (Default: AniWorld)
+- [x] Prüft ob Library schon existiert
+- [x] Library in Emby automatisch anlegen (via Emby API, Typ: tvshows)
+- [x] Nur anlegen, NICHT aktualisieren (Hinweis auf manuellen Library-Scan)
+- [x] API-Key + URL in Config speichern ([emby] Section)
 
 #### Sonstiges
 - [ ] GitHub Release erstellen

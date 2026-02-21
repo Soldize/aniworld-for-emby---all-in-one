@@ -216,6 +216,90 @@ reset_dashboard_password() {
     read -p "Drücke Enter für Menü..."
 }
 
+setup_emby_library() {
+    echo ""
+    echo -e "${YELLOW}Emby Library einrichten:${NC}"
+    echo ""
+    echo "  Soll automatisch eine Emby Library angelegt werden?"
+    echo "  (Emby Server muss laufen und erreichbar sein)"
+    echo ""
+    read -p "Library anlegen? (j/n) [n]: " do_lib
+    if [ "$do_lib" != "j" ] && [ "$do_lib" != "J" ] && [ "$do_lib" != "ja" ]; then
+        echo "  Übersprungen. Du kannst die Library später manuell in Emby anlegen."
+        return
+    fi
+
+    read -p "Emby Server URL [http://localhost:8096]: " emby_url
+    emby_url=${emby_url:-http://localhost:8096}
+
+    # Emby erreichbar?
+    if ! curl -sf "$emby_url/emby/System/Info/Public" > /dev/null 2>&1; then
+        echo -e "${RED}Emby Server nicht erreichbar unter $emby_url${NC}"
+        echo "  Übersprungen. Lege die Library später manuell an."
+        return
+    fi
+
+    read -p "Emby API-Key (findest du unter Emby > Einstellungen > API-Schlüssel): " emby_key
+    if [ -z "$emby_key" ]; then
+        echo -e "${RED}Kein API-Key angegeben. Übersprungen.${NC}"
+        return
+    fi
+
+    # API-Key testen
+    if ! curl -sf "$emby_url/emby/Library/VirtualFolders" -H "X-Emby-Token: $emby_key" > /dev/null 2>&1; then
+        echo -e "${RED}API-Key ungültig oder keine Berechtigung.${NC}"
+        echo "  Übersprungen."
+        return
+    fi
+
+    read -p "Library Name [AniWorld]: " lib_name
+    lib_name=${lib_name:-AniWorld}
+
+    # Prüfen ob Library schon existiert
+    local existing
+    existing=$(curl -s "$emby_url/emby/Library/VirtualFolders" -H "X-Emby-Token: $emby_key")
+    if echo "$existing" | python3 -c "import sys,json; libs=json.load(sys.stdin); exit(0 if any(l['Name']=='$lib_name' for l in libs) else 1)" 2>/dev/null; then
+        echo -e "${YELLOW}Library '$lib_name' existiert bereits!${NC}"
+        echo "  Übersprungen."
+        return
+    fi
+
+    # Library anlegen
+    echo -e "  Erstelle Library '${lib_name}'..."
+    local response
+    response=$(curl -s -w "\n%{http_code}" -X POST \
+        "$emby_url/emby/Library/VirtualFolders?name=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$lib_name'))")&collectionType=tvshows&refreshLibrary=false" \
+        -H "X-Emby-Token: $emby_key" \
+        -H "Content-Type: application/json" \
+        -d "{\"PathInfos\":[{\"Path\":\"$MEDIA_PATH\"}]}")
+
+    local http_code
+    http_code=$(echo "$response" | tail -1)
+
+    if [ "$http_code" = "204" ] || [ "$http_code" = "200" ]; then
+        echo -e "${GREEN}✅ Library '$lib_name' erstellt!${NC}"
+        echo ""
+        echo -e "  ${YELLOW}Wichtig:${NC} Starte nach dem ersten Sync einen Library-Scan in Emby"
+        echo "  (Emby > $lib_name > ⋯ > Bibliothek aktualisieren)"
+
+        # API-Key in Config speichern für spätere Nutzung
+        if ! grep -q "\[emby\]" "$CONFIG_DIR/config.ini" 2>/dev/null; then
+            cat >> "$CONFIG_DIR/config.ini" << EOF
+
+[emby]
+url = $emby_url
+api_key = $emby_key
+library_name = $lib_name
+EOF
+        fi
+    else
+        echo -e "${RED}Fehler beim Erstellen der Library (HTTP $http_code)${NC}"
+        echo "  Lege die Library manuell in Emby an:"
+        echo "  Typ: TV-Sendungen, Pfad: $MEDIA_PATH"
+    fi
+    echo ""
+}
+
 install_services() {
     echo -e "${YELLOW}Installiere systemd Services...${NC}"
 
@@ -403,6 +487,7 @@ full_install() {
     fi
 
     start_services
+    setup_emby_library
     post_install_check
 }
 
@@ -701,13 +786,13 @@ show_guide() {
     echo "  3. 'Sync > ▶ Starten' klicken."
     echo "     Generiert .strm + .nfo Dateien für alle Anime."
     echo ""
-    echo "  4. In Emby neue Bibliothek anlegen:"
+    echo "  4. Emby Library wird bei der Installation automatisch angelegt."
+    echo "     Falls übersprungen: Manuell in Emby anlegen:"
     echo "     - Typ: TV-Sendungen"
     echo "     - Pfad: $MEDIA_PATH"
     echo "     - Name: AniWorld"
-    echo "     - Metadaten-Downloads DEAKTIVIEREN (kommen vom Metadata Server)"
     echo ""
-    echo "  5. Emby Library Scan starten - fertig! 🎉"
+    echo "  5. Nach dem ersten Sync: Emby Library Scan starten - fertig! 🎉"
     echo ""
     echo -e "${BOLD}Nützliche Befehle:${NC}"
     echo ""
