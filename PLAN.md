@@ -105,9 +105,31 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] Stream-Playback funktioniert (getestet: hack//sign S01E01)
 - [x] Git: Gitea (meeko/) + GitHub (Soldize/)
 
-### 🔨 Offen / Nice-to-have
+### 🔨 Offen / Geplant
+
+#### Dashboard: Anime-Suche / Katalog-Browser (eigener Tab)
+- [ ] Eigener Tab im Dashboard (neben dem Haupt-Tab)
+- [ ] Suchfeld für Anime-Name/Slug
+- [ ] Katalog-Übersicht (A-Z, Anzahl, Status)
+- [ ] Detail-Ansicht pro Anime (Staffeln, Episoden, Metadata-Status)
+
+#### Dashboard: Log-Viewer (eigener Tab)
+- [ ] Eigener Tab im Dashboard
+- [ ] Live-Logs von API-Server + Metadata-Server
+- [ ] Filter nach Level (INFO/WARNING/ERROR)
+
+#### Dashboard: Auth/Passwort-Schutz
+- [ ] Bei Installation: Passwort anlegen (Pflicht)
+- [ ] Dashboard Login-Seite
+- [ ] Im Dashboard: Einstellungs-Option zum Passwort ändern
+- [ ] Install-Menü: Option "Passwort zurücksetzen" (neues Passwort setzen)
+- [ ] Session/Token-basiert (kein Login bei jedem Request)
+
+#### Emby Library Auto-Setup
+- [ ] Bei Installation fragen: "Wie soll die Library heißen?" (Default: AniWorld)
+- [ ] Library in Emby automatisch anlegen (via Emby API)
+- [ ] Nur anlegen, NICHT aktualisieren (User macht Library-Scan selbst nach erstem Sync)
+- [ ] Emby API-Key abfragen bei Installation
+
+#### Sonstiges
 - [ ] GitHub Release erstellen
-- [ ] Dashboard: Anime-Suche / Katalog-Browser
-- [ ] Dashboard: Log-Viewer für API/Metadata Server
-- [ ] Dashboard: Auth/Passwort-Schutz
-- [ ] Emby Library Auto-Setup (via Emby API)
