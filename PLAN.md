@@ -141,4 +141,4 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] API-Key + URL in Config speichern ([emby] Section)
 
 #### Sonstiges
-- [ ] GitHub Release erstellen
+- [x] GitHub Release erstellen (v1.0.0)
