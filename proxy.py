@@ -420,7 +420,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       background:var(--surface); color:var(--text); font-size:0.9rem;
       width:220px; max-width:100%; flex:1; min-width:150px;
     ">
-    <button class="btn btn-save" onclick="detailSingle()">🔍 Einzeln Scrapen</button>
+    <button class="btn btn-save" id="btn-detail-single" onclick="detailSingle()">🔍 Einzeln Scrapen</button>
   </div>
   <div id="detail-result" style="margin-top:10px; font-size:0.85rem; color:var(--muted);"></div>
 </div>
@@ -496,9 +496,11 @@ function renderStatus(data) {
     let statusIcon = running ? '🔄' : (pending === 0 ? '✅' : '⏸️');
     let statusText = running ? 'Läuft...' : (pending === 0 ? 'Komplett' : 'Pausiert');
 
-    // Batch Scrape Button sperren/freigeben
+    // Scrape Buttons sperren/freigeben
     const batchBtn = document.getElementById('btn-detail-batch');
+    const singleBtn = document.getElementById('btn-detail-single');
     if (batchBtn) batchBtn.disabled = running;
+    if (singleBtn) singleBtn.disabled = running;
 
     scrapeBox.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
