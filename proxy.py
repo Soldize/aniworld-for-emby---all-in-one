@@ -836,7 +836,7 @@ async function fetchStatus() {
 
 function renderStatus(data) {
   const grid = document.getElementById('status-grid');
-  const names = {api: 'API Server', metadata: 'Metadata Server', proxy: 'Proxy', sync: 'Sync'};
+  const names = {api: 'API Server', metadata: 'Metadata Server', proxy: 'Proxy', sync: 'STRM-Sync'};
   let html = '';
   for (const [key, info] of Object.entries(data)) {
     const st = info.status || 'offline';
