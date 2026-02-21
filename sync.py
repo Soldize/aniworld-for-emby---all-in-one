@@ -240,12 +240,16 @@ def _write_episode(show_dir, safe_name, anime_name, slug, season, ep_num, ep_tit
         season_dir = os.path.join(show_dir, f"Season {season:02d}")
     os.makedirs(season_dir, exist_ok=True)
 
-    # Filename: "Anime - SXXEXX - Title.strm"
+    # Filename: "Anime - SXXEXX - Title.strm" (max 240 chars to stay under 255 limit)
     safe_title = safe_filename(ep_title)
     if season == 0:
         base_name = f"{safe_name} - S00E{ep_num:02d} - {safe_title}"
     else:
         base_name = f"{safe_name} - S{season:02d}E{ep_num:02d} - {safe_title}"
+
+    # Truncate if too long (255 byte limit minus .strm/.nfo extension)
+    if len(base_name.encode('utf-8')) > 240:
+        base_name = base_name[:237].rstrip() + "..."
 
     strm_path = os.path.join(season_dir, f"{base_name}.strm")
     nfo_path = os.path.join(season_dir, f"{base_name}.nfo")
