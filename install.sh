@@ -19,6 +19,8 @@ REQUIRED_FILES="api_server.py metadata_server.py proxy.py sync.py requirements.t
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MUTED='\033[0;90m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
@@ -636,6 +638,38 @@ check_for_updates() {
 
     echo -e "  ${YELLOW}Updates verfügbar für:${BOLD}$update_files${NC}"
     echo ""
+
+    # Changelog von GitHub holen (Commits seit letztem Update)
+    local installed_ver=""
+    if [ -f "$INSTALL_DIR/.version" ]; then
+        installed_ver=$(cat "$INSTALL_DIR/.version" 2>/dev/null | head -1)
+    fi
+    echo -e "${BOLD}📋 Changelog:${NC}"
+    echo ""
+    local commits_json
+    commits_json=$(curl -s "$GITHUB_API/commits?per_page=30" 2>/dev/null)
+    if [ -n "$commits_json" ]; then
+        # SHA + Message extrahieren (abwechselnd sha, message Zeilen)
+        local shas messages
+        shas=$(echo "$commits_json" | grep -oP '"sha":\s*"\K[^"]+' | head -30)
+        messages=$(echo "$commits_json" | grep -oP '"message":\s*"\K[^"]+' | head -30)
+        local shown=0
+        paste <(echo "$shas") <(echo "$messages") | while IFS=$'\t' read -r sha msg; do
+            # Bei installierter Version stoppen
+            if [ -n "$installed_ver" ] && [ "${sha:0:${#installed_ver}}" = "$installed_ver" ]; then
+                break
+            fi
+            echo -e "  ${BLUE}•${NC} $msg"
+            shown=$((shown + 1))
+        done
+        if [ -z "$installed_ver" ]; then
+            echo -e "  ${MUTED}(letzte 10 Commits, keine installierte Version bekannt)${NC}"
+        fi
+    else
+        echo -e "  ${MUTED}(Changelog konnte nicht geladen werden)${NC}"
+    fi
+    echo ""
+
     read -p "Update jetzt installieren? (j/n): " do_update
     if [ "$do_update" != "j" ] && [ "$do_update" != "J" ] && [ "$do_update" != "ja" ]; then
         echo "Update übersprungen."
