@@ -685,7 +685,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <div class="tabs">
   <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
   <button class="tab" onclick="switchTab('catalog')">🔍 Katalog</button>
+  <button class="tab" onclick="switchTab('config')">⚙️ Konfiguration</button>
   <button class="tab" onclick="switchTab('logs')">📋 Logs</button>
+  <button class="tab" style="margin-left:auto;" onclick="switchTab('settings')">🔧 Einstellungen</button>
 </div>
 
 <!-- Tab: Dashboard -->
@@ -717,7 +719,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
 <!-- Sync Control -->
 <div class="section">
-  <h2>Sync</h2>
+  <h2>STRM-Sync</h2>
   <div class="btn-group">
     <button class="btn btn-start" id="btn-sync-start" onclick="syncStart()">▶ Starten</button>
     <button class="btn btn-stop" id="btn-sync-stop" onclick="syncStop()" disabled>⬛ Stoppen</button>
@@ -742,7 +744,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div id="detail-result" style="margin-top:10px; font-size:0.85rem; color:var(--muted);"></div>
 </div>
 
-<!-- Config Editor -->
+
+</div><!-- /tab-dashboard -->
+
+<!-- Tab: Konfiguration -->
+<div id="tab-config" style="display:none;">
 <div class="section">
   <h2>Konfiguration <span style="color:var(--muted);font-size:0.8rem" id="config-path"></span></h2>
   <textarea id="config-editor" spellcheck="false"></textarea>
@@ -750,20 +756,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <button class="btn btn-save" onclick="configSave()">💾 Speichern</button>
   </div>
 </div>
+</div><!-- /tab-config -->
 
-<!-- Einstellungen -->
+<!-- Tab: Einstellungen -->
+<div id="tab-settings" style="display:none;">
 <div class="section">
   <h2>Einstellungen</h2>
-  <div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px;">
+  <div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px;">
     <h3 style="font-size:0.9rem; color:var(--muted); margin-bottom:12px;">PASSWORT</h3>
     <div id="pw-section"></div>
   </div>
-  <div style="margin-top:12px;">
+  <div>
     <button class="btn btn-stop" onclick="logout()" id="btn-logout" style="width:auto;">🚪 Abmelden</button>
   </div>
 </div>
-
-</div><!-- /tab-dashboard -->
+</div><!-- /tab-settings -->
 
 <!-- Tab: Katalog -->
 <div id="tab-catalog" style="display:none;">
@@ -870,8 +877,10 @@ function renderStatus(data) {
     // Scrape Buttons sperren/freigeben
     const batchBtn = document.getElementById('btn-detail-batch');
     const singleBtn = document.getElementById('btn-detail-single');
+    const incBtn = document.getElementById('btn-incremental');
     if (batchBtn) batchBtn.disabled = running;
     if (singleBtn) singleBtn.disabled = running;
+    if (incBtn) incBtn.disabled = running;
 
     scrapeBox.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -1108,9 +1117,10 @@ async function changePw() {
 // === Tab Navigation ===
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  ['dashboard','catalog','logs'].forEach(t => document.getElementById('tab-'+t).style.display = t===tab?'':'none');
+  ['dashboard','catalog','config','logs','settings'].forEach(t => document.getElementById('tab-'+t).style.display = t===tab?'':'none');
   event.target.classList.add('active');
   if (tab === 'catalog' && !document.getElementById('catalog-letters').innerHTML) loadLetters();
+  if (tab === 'config' && !document.getElementById('config-editor').value) loadConfig();
   if (tab === 'logs' && !document.getElementById('log-viewer').innerHTML) loadLogs('api');
 }
 
@@ -1290,7 +1300,6 @@ function toggleAutoLog() {
 
 // Init
 fetchStatus();
-loadConfig();
 renderPwSection();
 setInterval(fetchStatus, 5000);
 </script>
