@@ -7,7 +7,8 @@ Anime-Streaming von aniworld.to in Emby - als native TV-Show Library.
 ## Features
 
 - **Volle Emby Integration:** Auto-Play, Resume, Per-User Zugriff, Suche, Metadata
-- **Web-Dashboard:** Status, Sync, Detail-Scrape mit Fortschritt, Config Editor
+- **Web-Dashboard:** Status, Sync, Detail-Scrape, Katalog-Browser, Log-Viewer, Config Editor
+- **Passwort-Schutz:** Dashboard Login mit SHA-256 Auth
 - **API Server:** Scrapt aniworld.to, cached Episoden + Stream-URLs
 - **Metadata Server:** AniList/MAL/AniDB Metadata, Cover-Bilder, Genres, Ratings
 - **Stream Proxy:** Löst Hoster-URLs on-demand auf (302 Redirect)
@@ -31,13 +32,14 @@ sudo ./install.sh
 
 Der Installer bietet ein interaktives Menü:
 
-1. **Komplettinstallation** - Alles frisch aufsetzen
-2. **Auf Updates prüfen** - GitHub nach neuer Version checken
+1. **Komplettinstallation** - Alles frisch aufsetzen (inkl. optionales Emby Library Auto-Setup)
+2. **Auf Updates prüfen** - Datei-Hashes gegen GitHub vergleichen
 3. **Config ändern** - Ports/Pfade anpassen
 4. **Services neustarten**
 5. **Status** anzeigen
-6. **Deinstallieren**
-7. **Anleitung** - Schritt-für-Schritt Ersteinrichtung
+6. **Passwort zurücksetzen**
+7. **Deinstallieren**
+8. **Anleitung** - Schritt-für-Schritt Ersteinrichtung
 
 Nach der Installation prüft das Script automatisch ob alle Services laufen.
 
@@ -45,17 +47,12 @@ Nach der Installation prüft das Script automatisch ob alle Services laufen.
 
 Nach der Installation erreichbar unter: **http://localhost:5081/**
 
-- **Status:** Alle Services auf einen Blick (online/offline)
-- **Aniworld Scrape:** Neue Serien + Episoden von aniworld.to holen (Incremental)
-- **Metadata Sync:** AniList Metadata aktualisieren mit Fortschrittsbalken
-- **Sync:** .strm/.nfo Dateien generieren, manuell starten/stoppen mit Live-Log
-- **Detail Scrape:** Batch (alle) oder einzeln per Slug, mit Fortschrittsbalken
-- **Config:** Direkt im Browser bearbeiten und speichern
+- **📊 Dashboard:** Service-Status, Aniworld Scrape, Metadata Sync, Detail Scrape, Sync Control, Config Editor
+- **🔍 Katalog:** Anime-Suche, A-Z Navigation, Detail-Ansicht mit Cover + Staffeln + Episoden
+- **📋 Logs:** Live-Logs von API/Metadata/Proxy, Filter nach Level, Auto-Refresh, farbcodiert
+- **🔒 Auth:** Login erforderlich, Passwort im Dashboard änderbar, /play/* bleibt offen für Emby
 - Buttons werden automatisch gesperrt solange ein Prozess läuft
-- **Passwort-geschützt:** Login erforderlich, Passwort im Dashboard änderbar
-- Logout-Button, Emby-Streams (/play/*) bleiben offen
-
-Das Dashboard ist responsive und passt sich an Desktop, Tablet und Mobile an.
+- Responsive (Desktop, Tablet, Mobile)
 
 ## Architektur
 
@@ -102,11 +99,12 @@ Das Dashboard ist responsive und passt sich an Desktop, Tablet und Mobile an.
 
 ## Ersteinrichtung
 
-1. **Dashboard öffnen:** http://localhost:5081/
-2. **Katalog wird automatisch gescraped** beim API-Start
-3. **Detail Scrape starten** im Dashboard (holt Cover, Beschreibungen) - dauert ca. 2h
-4. **Sync starten** im Dashboard - generiert .strm/.nfo Dateien
-5. **In Emby:** Neue Bibliothek erstellen (Typ: TV-Sendungen, Pfad: `/media/aniworld`)
+1. **Installer starten** - Passwort wird bei Installation festgelegt
+2. **Dashboard öffnen:** http://localhost:5081/ (Login mit Passwort)
+3. **Katalog wird automatisch gescraped** beim API-Start
+4. **Detail Scrape starten** im Dashboard (holt Cover, Beschreibungen) - dauert ca. 2h
+5. **Sync starten** im Dashboard - generiert .strm/.nfo Dateien
+6. **Emby Library:** Wird optional bei Installation automatisch angelegt, oder manuell (Typ: TV-Sendungen, Pfad: `/media/aniworld`)
 
 ## Nützliche Befehle
 
