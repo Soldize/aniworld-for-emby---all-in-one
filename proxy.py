@@ -16,6 +16,7 @@ import secrets
 import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -120,6 +121,126 @@ def _check_auth(request: Request):
     token = request.cookies.get("aniworld_session")
     return _valid_session(token)
 
+
+# ========================
+# Cron Scheduler
+# ========================
+CRONS_FILE = os.path.join(os.path.dirname(CONFIG_PATH), "crons.json")
+_cron_last_run = {}  # job_id -> last run datetime string
+
+DEFAULT_CRONS = {
+    "detail_scrape": {"name": "Detail-Scraping", "schedule": "0 */6 * * *", "enabled": True},
+    "incremental_sync": {"name": "Änderungen Scrapen", "schedule": "0 2 * * *", "enabled": True},
+    "strm_sync": {"name": "STRM-Sync", "schedule": "0 3 * * *", "enabled": True},
+    "metadata_sync": {"name": "Metadata Sync", "schedule": "0 4 * * *", "enabled": True},
+}
+
+
+def _load_crons():
+    """Load cron config from file, merge with defaults."""
+    crons = dict(DEFAULT_CRONS)
+    try:
+        if os.path.exists(CRONS_FILE):
+            with open(CRONS_FILE, 'r') as f:
+                saved = json.load(f)
+            for k, v in saved.items():
+                if k in crons:
+                    crons[k].update(v)
+    except Exception:
+        pass
+    return crons
+
+
+def _save_crons(crons):
+    """Save cron config to file."""
+    with open(CRONS_FILE, 'w') as f:
+        json.dump(crons, f, indent=2)
+    try:
+        os.chmod(CRONS_FILE, 0o644)
+    except Exception:
+        pass
+
+
+def _cron_matches(expr, now):
+    """Check if a cron expression matches the current time (minute-level).
+    Supports: * */N and specific values. Format: min hour dom month dow"""
+    try:
+        parts = expr.strip().split()
+        if len(parts) != 5:
+            return False
+        fields = [now.minute, now.hour, now.day, now.month, now.weekday()]
+        # weekday: cron uses 0=Sun, Python 0=Mon -> convert
+        fields[4] = (now.weekday() + 1) % 7  # 0=Sun
+
+        for i, (part, val) in enumerate(zip(parts, fields)):
+            if part == '*':
+                continue
+            if part.startswith('*/'):
+                step = int(part[2:])
+                if val % step != 0:
+                    return False
+            elif ',' in part:
+                if val not in [int(x) for x in part.split(',')]:
+                    return False
+            elif '-' in part:
+                lo, hi = part.split('-', 1)
+                if not (int(lo) <= val <= int(hi)):
+                    return False
+            else:
+                if val != int(part):
+                    return False
+        return True
+    except Exception:
+        return False
+
+
+def _run_cron_job(job_id):
+    """Execute a cron job by id."""
+    log.info(f"[Cron] Running job: {job_id}")
+    try:
+        if job_id == "detail_scrape":
+            requests.post(f"{API_BASE}/api/sync/details", timeout=10)
+        elif job_id == "incremental_sync":
+            requests.post(f"{API_BASE}/api/sync/incremental", timeout=10)
+        elif job_id == "strm_sync":
+            subprocess.Popen(
+                [sys.executable, SYNC_SCRIPT],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env={**os.environ, "ANIWORLD_CONFIG": CONFIG_PATH}
+            )
+        elif job_id == "metadata_sync":
+            requests.post(f"{META_BASE}/sync", timeout=10)
+        _cron_last_run[job_id] = datetime.now().isoformat()
+        log.info(f"[Cron] Job {job_id} started successfully")
+    except Exception as e:
+        log.error(f"[Cron] Job {job_id} failed: {e}")
+
+
+def _cron_scheduler():
+    """Background thread: checks every 60s if any cron job should run."""
+    log.info("[Cron] Scheduler started")
+    last_check_minute = -1
+    while True:
+        try:
+            now = datetime.now()
+            # Only check once per minute
+            if now.minute != last_check_minute:
+                last_check_minute = now.minute
+                crons = _load_crons()
+                for job_id, job in crons.items():
+                    if not job.get("enabled", False):
+                        continue
+                    schedule = job.get("schedule", "")
+                    if _cron_matches(schedule, now):
+                        _run_cron_job(job_id)
+        except Exception as e:
+            log.error(f"[Cron] Scheduler error: {e}")
+        time.sleep(15)
+
+
+# Start cron scheduler thread
+_cron_thread = threading.Thread(target=_cron_scheduler, daemon=True)
+_cron_thread.start()
 
 app = FastAPI(title="AniWorld Proxy", docs_url=None, redoc_url=None)
 
@@ -579,6 +700,45 @@ async def catalog_films(slug: str, request: Request):
         raise HTTPException(status_code=502, detail="API Server nicht erreichbar")
 
 
+
+# ========================
+# Cron API
+# ========================
+
+@app.get("/api/dashboard/crons")
+async def crons_get():
+    """Get all cron jobs with last run info."""
+    crons = _load_crons()
+    for job_id in crons:
+        crons[job_id]["last_run"] = _cron_last_run.get(job_id, None)
+    return crons
+
+
+@app.post("/api/dashboard/crons")
+async def crons_save(request: Request):
+    """Save cron job config."""
+    body = await request.json()
+    # Validate
+    for job_id, job in body.items():
+        if job_id not in DEFAULT_CRONS:
+            raise HTTPException(status_code=400, detail=f"Unbekannter Job: {job_id}")
+        schedule = job.get("schedule", "")
+        parts = schedule.strip().split()
+        if len(parts) != 5:
+            raise HTTPException(status_code=400, detail=f"Ungültiger Cron-Ausdruck für {job_id}: '{schedule}' (5 Felder erwartet)")
+    _save_crons(body)
+    return {"status": "saved"}
+
+
+@app.post("/api/dashboard/crons/{job_id}/run")
+async def crons_run_now(job_id: str):
+    """Manually trigger a cron job."""
+    if job_id not in DEFAULT_CRONS:
+        raise HTTPException(status_code=400, detail=f"Unbekannter Job: {job_id}")
+    threading.Thread(target=_run_cron_job, args=(job_id,), daemon=True).start()
+    return {"status": "started", "job": job_id}
+
+
 # ========================
 # Dashboard UI
 # ========================
@@ -686,6 +846,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
   <button class="tab" onclick="switchTab('catalog')">🔍 Katalog</button>
   <button class="tab" onclick="switchTab('config')">⚙️ Konfiguration</button>
+  <button class="tab" onclick="switchTab('crons')">⏰ Crons</button>
   <button class="tab" onclick="switchTab('logs')">📋 Logs</button>
   <button class="tab" style="margin-left:auto;" onclick="switchTab('settings')">🔧 Einstellungen</button>
 </div>
@@ -787,6 +948,23 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div id="catalog-detail" style="display:none;"></div>
   </div>
 </div><!-- /tab-catalog -->
+
+<!-- Tab: Crons -->
+<div id="tab-crons" style="display:none;">
+<div class="section">
+  <h2>Cronjobs</h2>
+  <p style="color:var(--muted); font-size:0.85rem; margin-bottom:16px;">
+    Zeitgesteuerte Aufgaben. Format: <code style="background:var(--surface); padding:2px 6px; border-radius:3px;">Min Std Tag Monat Wochentag</code>
+    - z.B. <code style="background:var(--surface); padding:2px 6px; border-radius:3px;">0 3 * * *</code> = täglich 03:00,
+    <code style="background:var(--surface); padding:2px 6px; border-radius:3px;">0 */6 * * *</code> = alle 6 Stunden
+  </p>
+  <div id="crons-list"></div>
+  <div style="margin-top:12px;">
+    <button class="btn btn-save" onclick="cronsSave()">💾 Speichern</button>
+    <span id="crons-result" style="margin-left:12px; font-size:0.85rem; color:var(--muted);"></span>
+  </div>
+</div>
+</div><!-- /tab-crons -->
 
 <!-- Tab: Logs -->
 <div id="tab-logs" style="display:none;">
@@ -1117,10 +1295,11 @@ async function changePw() {
 // === Tab Navigation ===
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  ['dashboard','catalog','config','logs','settings'].forEach(t => document.getElementById('tab-'+t).style.display = t===tab?'':'none');
+  ['dashboard','catalog','config','crons','logs','settings'].forEach(t => document.getElementById('tab-'+t).style.display = t===tab?'':'none');
   event.target.classList.add('active');
   if (tab === 'catalog' && !document.getElementById('catalog-letters').innerHTML) loadLetters();
   if (tab === 'config' && !document.getElementById('config-editor').value) loadConfig();
+  if (tab === 'crons' && !document.getElementById('crons-list').innerHTML) loadCrons();
   if (tab === 'logs' && !document.getElementById('log-viewer').innerHTML) loadLogs('api');
 }
 
@@ -1296,6 +1475,79 @@ function toggleAutoLog() {
     clearInterval(logAutoInterval);
     logAutoInterval = null;
   }
+}
+
+// === Crons ===
+let cronsData = {};
+
+async function loadCrons() {
+  try {
+    const r = await fetch(API + '/api/dashboard/crons');
+    cronsData = await r.json();
+    renderCrons();
+  } catch(e) { toast('Crons laden fehlgeschlagen', false); }
+}
+
+function renderCrons() {
+  const el = document.getElementById('crons-list');
+  let html = '';
+  for (const [id, job] of Object.entries(cronsData)) {
+    const lastRun = job.last_run ? new Date(job.last_run).toLocaleString('de-DE') : 'Noch nie';
+    html += `
+      <div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:10px;">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:8px; min-width:200px; cursor:pointer;">
+            <input type="checkbox" id="cron-enabled-${id}" ${job.enabled ? 'checked' : ''}
+              onchange="cronsData['${id}'].enabled = this.checked"
+              style="width:18px; height:18px; accent-color:var(--accent);">
+            <strong style="font-size:0.95rem;">${job.name}</strong>
+          </label>
+          <input type="text" id="cron-schedule-${id}" value="${job.schedule}" placeholder="* * * * *"
+            onchange="cronsData['${id}'].schedule = this.value"
+            style="padding:6px 10px; border:1px solid var(--border); border-radius:4px;
+              background:var(--bg); color:var(--text); font-family:monospace; font-size:0.9rem; width:160px;">
+          <button class="btn btn-start" onclick="cronRunNow('${id}')" style="padding:4px 12px; font-size:0.8rem;">
+            ▶ Jetzt
+          </button>
+          <span style="color:var(--muted); font-size:0.8rem;">Letzter Lauf: ${lastRun}</span>
+        </div>
+      </div>`;
+  }
+  el.innerHTML = html;
+}
+
+async function cronsSave() {
+  // Werte aus Inputs lesen
+  for (const id of Object.keys(cronsData)) {
+    const schedEl = document.getElementById('cron-schedule-' + id);
+    const enEl = document.getElementById('cron-enabled-' + id);
+    if (schedEl) cronsData[id].schedule = schedEl.value;
+    if (enEl) cronsData[id].enabled = enEl.checked;
+  }
+  try {
+    const r = await fetch(API + '/api/dashboard/crons', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(cronsData)
+    });
+    if (!r.ok) { const e = await r.json(); toast(e.detail, false); return; }
+    toast('Cronjobs gespeichert!');
+    document.getElementById('crons-result').textContent = '✅ Gespeichert';
+    setTimeout(() => document.getElementById('crons-result').textContent = '', 3000);
+  } catch(e) { toast('Fehler: ' + e, false); }
+}
+
+async function cronRunNow(jobId) {
+  try {
+    const r = await fetch(API + '/api/dashboard/crons/' + jobId + '/run', {method:'POST'});
+    if (r.ok) {
+      toast('Job gestartet!');
+      setTimeout(loadCrons, 2000);
+    } else {
+      const e = await r.json();
+      toast(e.detail, false);
+    }
+  } catch(e) { toast('Fehler: ' + e, false); }
 }
 
 // Init
