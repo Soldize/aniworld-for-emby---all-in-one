@@ -283,10 +283,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     --green: #00b894; --red: #e17055; --yellow: #fdcb6e; --blue: #74b9ff;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, 'Segoe UI', Roboto, monospace; background: var(--bg); color: var(--text); padding: 20px; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Roboto, monospace;
+    background: var(--bg); color: var(--text);
+    padding: 20px; max-width: 1200px; margin: 0 auto;
+  }
   h1 { font-size: 1.5rem; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
   h1 span { font-size: 1.8rem; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
   .card h3 { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
   .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
@@ -302,17 +306,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .btn-start { background: var(--green); color: #000; }
   .btn-stop { background: var(--red); color: #fff; }
   .btn-save { background: var(--accent); color: #fff; }
-  .btn-group { display: flex; gap: 8px; margin-bottom: 12px; }
+  .btn-group { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .log-box {
     background: #000; border: 1px solid var(--border); border-radius: 8px;
-    padding: 12px; height: 300px; overflow-y: auto; font-family: 'Fira Code', monospace;
+    padding: 12px; height: 40vh; min-height: 150px; max-height: 500px;
+    overflow-y: auto; font-family: 'Fira Code', monospace;
     font-size: 0.8rem; line-height: 1.5; white-space: pre-wrap; color: #aaa;
   }
   .log-box .info { color: var(--blue); }
   .log-box .error { color: var(--red); }
   .log-box .warn { color: var(--yellow); }
   textarea {
-    width: 100%; min-height: 250px; background: #000; color: var(--text);
+    width: 100%; min-height: 200px; height: 30vh; max-height: 400px;
+    background: #000; color: var(--text);
     border: 1px solid var(--border); border-radius: 8px; padding: 12px;
     font-family: 'Fira Code', monospace; font-size: 0.85rem; resize: vertical;
   }
@@ -324,6 +330,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .toast.show { opacity: 1; }
   .toast.ok { background: var(--green); color: #000; }
   .toast.err { background: var(--red); color: #fff; }
+
+  /* Mobile */
+  @media (max-width: 600px) {
+    body { padding: 12px; }
+    h1 { font-size: 1.2rem; }
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .btn { padding: 8px 14px; font-size: 0.8rem; }
+    .btn-group { gap: 6px; }
+    .log-box { height: 30vh; font-size: 0.7rem; }
+    textarea { height: 25vh; font-size: 0.75rem; }
+  }
+
+  @media (max-width: 400px) {
+    .grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -351,7 +372,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <span style="color:var(--muted);margin:0 4px;">oder</span>
     <input type="text" id="detail-slug" placeholder="anime-slug eingeben..." style="
       padding:8px 12px; border:1px solid var(--border); border-radius:6px;
-      background:var(--surface); color:var(--text); font-size:0.9rem; width:220px;
+      background:var(--surface); color:var(--text); font-size:0.9rem;
+      width:220px; max-width:100%; flex:1; min-width:150px;
     ">
     <button class="btn btn-save" onclick="detailSingle()">🔍 Einzeln Scrapen</button>
   </div>
