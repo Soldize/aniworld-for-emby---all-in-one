@@ -496,6 +496,10 @@ function renderStatus(data) {
     let statusIcon = running ? '🔄' : (pending === 0 ? '✅' : '⏸️');
     let statusText = running ? 'Läuft...' : (pending === 0 ? 'Komplett' : 'Pausiert');
 
+    // Batch Scrape Button sperren/freigeben
+    const batchBtn = document.getElementById('btn-detail-batch');
+    if (batchBtn) batchBtn.disabled = running;
+
     scrapeBox.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
         <span>${statusIcon} <strong>Scrape Status:</strong> ${statusText}</span>
