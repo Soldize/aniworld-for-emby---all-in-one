@@ -9,6 +9,8 @@ import logging
 import os
 import re
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -248,45 +250,68 @@ def _write_episode(show_dir, safe_name, anime_name, slug, season, ep_num, ep_tit
     strm_path = os.path.join(season_dir, f"{base_name}.strm")
     nfo_path = os.path.join(season_dir, f"{base_name}.nfo")
 
-    new = 0
-    # Only write .strm if it doesn't exist (URLs are stable via proxy)
+    # Skip if both files already exist
+    if os.path.exists(strm_path) and os.path.exists(nfo_path):
+        return 0
+
     if not os.path.exists(strm_path):
         write_strm(strm_path, slug, season, ep_num)
-        new = 1
 
-    # Always update .nfo (metadata might change)
-    write_episode_nfo(nfo_path, anime_name, season, ep_num, ep_title)
-    return new
+    if not os.path.exists(nfo_path):
+        write_episode_nfo(nfo_path, anime_name, season, ep_num, ep_title)
+
+    return 1
+
+
+WORKERS = 10
+
+
+def _sync_one(args):
+    """Sync a single anime (for thread pool). Returns (slug, new_eps)."""
+    i, total, anime = args
+    slug = anime.get("slug", "")
+    name = anime.get("name", slug)
+    log.info(f"[{i}/{total}] Syncing: {name}")
+
+    metadata = fetch_metadata(slug)
+    new_eps = sync_anime(anime, metadata)
+    if new_eps > 0:
+        log.info(f"  [{slug}] {new_eps} new episodes written")
+    return slug, new_eps
 
 
 def main():
     log.info("=" * 60)
     log.info("AniWorld Sync starting")
     log.info(f"API: {API_BASE} | Metadata: {META_BASE}")
-    log.info(f"Media path: {MEDIA_PATH}")
+    log.info(f"Media path: {MEDIA_PATH} | Workers: {WORKERS}")
     log.info("=" * 60)
 
     os.makedirs(MEDIA_PATH, exist_ok=True)
+    start_time = time.time()
 
     anime_list = fetch_all_anime()
     if not anime_list:
         log.error("No anime found, aborting sync")
         sys.exit(1)
 
+    total = len(anime_list)
     total_new = 0
-    for i, anime in enumerate(anime_list):
-        slug = anime.get("slug", "")
-        name = anime.get("name", slug)
-        log.info(f"[{i+1}/{len(anime_list)}] Syncing: {name}")
+    tasks = [(i + 1, total, anime) for i, anime in enumerate(anime_list)]
 
-        metadata = fetch_metadata(slug)
-        new_eps = sync_anime(anime, metadata)
-        if new_eps > 0:
-            log.info(f"  → {new_eps} new episodes written")
-        total_new += new_eps
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        futures = {pool.submit(_sync_one, t): t for t in tasks}
+        for future in as_completed(futures):
+            try:
+                slug, new_eps = future.result()
+                total_new += new_eps
+            except Exception as e:
+                _, _, anime = futures[future]
+                log.error(f"Error syncing {anime.get('slug', '?')}: {e}")
 
+    elapsed = time.time() - start_time
     log.info("=" * 60)
-    log.info(f"Sync complete: {len(anime_list)} anime, {total_new} new episodes")
+    log.info(f"Sync complete: {total} anime, {total_new} new episodes, {elapsed:.1f}s")
     log.info("=" * 60)
 
 
