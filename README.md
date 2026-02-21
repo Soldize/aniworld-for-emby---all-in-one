@@ -46,9 +46,12 @@ Nach der Installation prüft das Script automatisch ob alle Services laufen.
 Nach der Installation erreichbar unter: **http://localhost:5081/**
 
 - **Status:** Alle Services auf einen Blick (online/offline)
-- **Sync:** Manuell starten/stoppen mit Live-Log
+- **Aniworld Scrape:** Neue Serien + Episoden von aniworld.to holen (Incremental)
+- **Metadata Sync:** AniList Metadata aktualisieren mit Fortschrittsbalken
+- **Sync:** .strm/.nfo Dateien generieren, manuell starten/stoppen mit Live-Log
 - **Detail Scrape:** Batch (alle) oder einzeln per Slug, mit Fortschrittsbalken
 - **Config:** Direkt im Browser bearbeiten und speichern
+- Buttons werden automatisch gesperrt solange ein Prozess läuft
 
 Das Dashboard ist responsive und passt sich an Desktop, Tablet und Mobile an.
 

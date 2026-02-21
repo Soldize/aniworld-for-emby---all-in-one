@@ -70,34 +70,43 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 
 ### 6. Install-Script (Standalone)
 - Einzelne Datei, lädt alles von GitHub
+- Self-Update: prüft beim Start ob neue install.sh auf GitHub liegt
+- Update-Check: vergleicht md5 Hashes jeder Datei gegen GitHub
 - Interaktives Menü (7 Optionen):
   1. Komplettinstallation
-  2. Auf Updates prüfen (GitHub Release/Commit check)
+  2. Auf Updates prüfen (Datei-Hash Vergleich gegen GitHub)
   3. Config ändern
   4. Services neustarten
   5. Status
   6. Deinstallieren
   7. Anleitung (Ersteinrichtung, Dashboard, Fehlerbehebung)
-- Post-Install Health-Check (Services + API + Dashboard)
+- Post-Install Health-Check (Services + API + Dashboard erreichbar)
 - CLI-Shortcuts: `./install.sh install|update|status`
 
 ## Status
 
 ### ✅ Fertig
 - [x] API-Server (Katalog-Scraping, Detail-Scraping, Stream-Resolution)
-- [x] Metadata-Server (AniList/MAL/AniDB, Cover-Cache)
-- [x] Proxy-Server (Stream-Redirect)
-- [x] Dashboard (Status, Sync, Detail-Scrape mit Fortschrittsbalken, Config)
-- [x] Dashboard responsive (Desktop/Tablet/Mobile)
+- [x] Metadata-Server (AniList/MAL/AniDB, Cover-Cache, Sync-Progress Tracking)
+- [x] Proxy-Server (Stream-Redirect, 302 zu Hoster-CDN)
+- [x] Dashboard: Service-Status (online/offline)
+- [x] Dashboard: Sync Control (Start/Stop mit Live-Log)
+- [x] Dashboard: Aniworld Scrape (Incremental - neue Serien/Episoden)
+- [x] Dashboard: Metadata Sync mit Fortschrittsbalken + Button-Sperre
+- [x] Dashboard: Detail Scrape (Batch + Einzeln per Slug) mit Fortschrittsbalken + Button-Sperre
+- [x] Dashboard: Config Editor (im Browser bearbeiten)
+- [x] Dashboard: Responsive (Desktop/Tablet/Mobile)
 - [x] Sync-Service (.strm/.nfo Generator)
 - [x] Config-System (/etc/aniworld/config.ini)
 - [x] systemd Services + Timer
-- [x] Standalone Install-Script (lädt von GitHub)
-- [x] Install-Menü mit Update-Check, Anleitung, Health-Check
+- [x] Standalone Install-Script (lädt von GitHub, Self-Update)
+- [x] Install-Menü mit Update-Check (Datei-Hash Vergleich), Anleitung, Health-Check
+- [x] DB-Migration: stream_cache Spalten automatisch hinzugefügt
+- [x] Stream-Playback funktioniert (getestet: hack//sign S01E01)
 - [x] Git: Gitea (meeko/) + GitHub (Soldize/)
 
 ### 🔨 Offen / Nice-to-have
-- [ ] GitHub Release erstellen (für sauberen Update-Check)
+- [ ] GitHub Release erstellen
 - [ ] Dashboard: Anime-Suche / Katalog-Browser
 - [ ] Dashboard: Log-Viewer für API/Metadata Server
 - [ ] Dashboard: Auth/Passwort-Schutz
