@@ -26,12 +26,12 @@ _cfg.read(os.environ.get("ANIWORLD_CONFIG", "/etc/aniworld/config.ini"))
 
 DB_PATH = _cfg.get("api", "db_path", fallback="/opt/aniworld/data/aniworld.db")
 BASE_URL = "https://aniworld.to"
-SYNC_INTERVAL = 12 * 3600  # 12 hours
+SYNC_INTERVAL = 300  # 5 minutes between background sync batches
 DETAIL_SCRAPE_DELAY = 3  # seconds between requests to aniworld.to (catalog scraping)
 STREAM_SCRAPE_DELAY = 0.25  # seconds between requests for stream resolving (faster)
 INCREMENTAL_CHECK_DELAY = 1.0  # faster delay for incremental sync checks
 DETAIL_CACHE_DAYS = 7  # don't re-scrape details within this period
-DETAIL_BATCH_SIZE = 50  # how many details to scrape per background run
+DETAIL_BATCH_SIZE = 100  # how many details to scrape per background run
 
 # Global rate limiter - only one aniworld.to request at a time
 _scrape_lock = threading.Lock()
