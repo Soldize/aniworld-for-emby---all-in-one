@@ -107,11 +107,13 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 
 ### 🔨 Offen / Geplant
 
-#### Dashboard: Anime-Suche / Katalog-Browser (eigener Tab)
-- [ ] Eigener Tab im Dashboard (neben dem Haupt-Tab)
-- [ ] Suchfeld für Anime-Name/Slug
-- [ ] Katalog-Übersicht (A-Z, Anzahl, Status)
-- [ ] Detail-Ansicht pro Anime (Staffeln, Episoden, Metadata-Status)
+#### Dashboard: Anime-Suche / Katalog-Browser (eigener Tab) ✅
+- [x] Eigener Tab im Dashboard (📊 Dashboard | 🔍 Katalog)
+- [x] Suchfeld für Anime-Name
+- [x] A-Z Buchstaben-Navigation mit Anime-Anzahl
+- [x] Anime-Karten mit Titel, Slug, Staffeln, Status
+- [x] Detail-Ansicht: Cover, Beschreibung, Staffel-Buttons
+- [x] Episoden-Liste pro Staffel + Filme
 
 #### Dashboard: Log-Viewer (eigener Tab)
 - [ ] Eigener Tab im Dashboard

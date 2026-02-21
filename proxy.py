@@ -501,6 +501,62 @@ async def detail_scrape_single(slug: str):
 
 
 # ========================
+# Catalog API (proxy to API server)
+# ========================
+
+@app.get("/api/dashboard/catalog/letters")
+async def catalog_letters(request: Request):
+    try:
+        r = requests.get(f"{API_BASE}/api/letters", timeout=5)
+        return JSONResponse(r.json() if r.ok else [])
+    except Exception:
+        raise HTTPException(status_code=502, detail="API Server nicht erreichbar")
+
+
+@app.get("/api/dashboard/catalog/anime")
+async def catalog_anime(request: Request, letter: str = "", q: str = ""):
+    try:
+        if q:
+            r = requests.get(f"{API_BASE}/api/search", params={"q": q}, timeout=5)
+        elif letter:
+            r = requests.get(f"{API_BASE}/api/anime", params={"letter": letter}, timeout=5)
+        else:
+            r = requests.get(f"{API_BASE}/api/anime/recent", timeout=5)
+        return JSONResponse(r.json() if r.ok else [])
+    except Exception:
+        raise HTTPException(status_code=502, detail="API Server nicht erreichbar")
+
+
+@app.get("/api/dashboard/catalog/anime/{slug}")
+async def catalog_anime_detail(slug: str, request: Request):
+    try:
+        r = requests.get(f"{API_BASE}/api/anime/{slug}", timeout=5)
+        if not r.ok:
+            raise HTTPException(status_code=404, detail="Anime nicht gefunden")
+        return JSONResponse(r.json())
+    except requests.ConnectionError:
+        raise HTTPException(status_code=502, detail="API Server nicht erreichbar")
+
+
+@app.get("/api/dashboard/catalog/anime/{slug}/season/{season_num}/episodes")
+async def catalog_episodes(slug: str, season_num: int, request: Request):
+    try:
+        r = requests.get(f"{API_BASE}/api/anime/{slug}/season/{season_num}/episodes", timeout=10)
+        return JSONResponse(r.json() if r.ok else [])
+    except Exception:
+        raise HTTPException(status_code=502, detail="API Server nicht erreichbar")
+
+
+@app.get("/api/dashboard/catalog/anime/{slug}/films/episodes")
+async def catalog_films(slug: str, request: Request):
+    try:
+        r = requests.get(f"{API_BASE}/api/anime/{slug}/films/episodes", timeout=10)
+        return JSONResponse(r.json() if r.ok else [])
+    except Exception:
+        raise HTTPException(status_code=502, detail="API Server nicht erreichbar")
+
+
+# ========================
 # Dashboard UI
 # ========================
 
@@ -565,6 +621,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .toast.ok { background: var(--green); color: #000; }
   .toast.err { background: var(--red); color: #fff; }
 
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .tab { padding: 8px 16px; border: none; background: none; color: var(--muted); cursor: pointer;
+    font-size: 0.9rem; font-weight: 600; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .anime-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s; }
+  .anime-card:hover { border-color: var(--accent); }
+  .anime-card h3 { font-size: 0.95rem; margin-bottom: 4px; }
+  .anime-card .meta { font-size: 0.8rem; color: var(--muted); }
+  .letter-btn { padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+  .letter-btn:hover, .letter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .back-btn { color: var(--accent); cursor: pointer; font-size: 0.9rem; margin-bottom: 12px; display: inline-block; }
+  .back-btn:hover { text-decoration: underline; }
+  .episode-row { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+  .episode-row:last-child { border-bottom: none; }
+
   /* Mobile */
   @media (max-width: 600px) {
     body { padding: 12px; }
@@ -583,6 +657,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <h1><span>🎬</span> AniWorld Dashboard</h1>
+
+<!-- Tab Navigation -->
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+  <button class="tab" onclick="switchTab('catalog')">🔍 Katalog</button>
+</div>
+
+<!-- Tab: Dashboard -->
+<div id="tab-dashboard">
 
 <!-- Status Cards -->
 <div class="grid" id="status-grid"></div>
@@ -655,6 +738,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <button class="btn btn-stop" onclick="logout()" id="btn-logout" style="width:auto;">🚪 Abmelden</button>
   </div>
 </div>
+
+</div><!-- /tab-dashboard -->
+
+<!-- Tab: Katalog -->
+<div id="tab-catalog" style="display:none;">
+  <div class="section">
+    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+      <input type="text" id="catalog-search" placeholder="Anime suchen..." onkeyup="if(event.key==='Enter')catalogSearch()" style="
+        padding:8px 12px; border:1px solid var(--border); border-radius:6px;
+        background:var(--surface); color:var(--text); font-size:0.9rem; flex:1; min-width:200px;">
+      <button class="btn btn-save" onclick="catalogSearch()">🔍 Suchen</button>
+    </div>
+    <div id="catalog-letters" style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:16px;"></div>
+    <div id="catalog-info" style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;"></div>
+    <div id="catalog-list"></div>
+    <div id="catalog-detail" style="display:none;"></div>
+  </div>
+</div><!-- /tab-catalog -->
 
 <div class="toast" id="toast"></div>
 
@@ -954,6 +1055,154 @@ async function changePw() {
       toast(e.detail || 'Fehler', false);
     }
   } catch(e) { toast('Fehler: ' + e, false); }
+}
+
+// === Tab Navigation ===
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-dashboard').style.display = tab === 'dashboard' ? '' : 'none';
+  document.getElementById('tab-catalog').style.display = tab === 'catalog' ? '' : 'none';
+  event.target.classList.add('active');
+  if (tab === 'catalog' && !document.getElementById('catalog-letters').innerHTML) {
+    loadLetters();
+  }
+}
+
+// === Katalog ===
+let currentLetter = '';
+
+async function loadLetters() {
+  try {
+    const r = await fetch(API + '/api/dashboard/catalog/letters');
+    const data = await r.json();
+    const el = document.getElementById('catalog-letters');
+    let total = 0;
+    el.innerHTML = data.map(l => {
+      total += l.cnt || l.count || 0;
+      const cnt = l.cnt || l.count || 0;
+      return `<button class="letter-btn" onclick="loadByLetter('${l.letter}')" title="${cnt} Anime">${l.letter}</button>`;
+    }).join('');
+    document.getElementById('catalog-info').textContent = `${total} Anime im Katalog`;
+  } catch(e) { console.error(e); }
+}
+
+async function loadByLetter(letter) {
+  currentLetter = letter;
+  document.querySelectorAll('.letter-btn').forEach(b => b.classList.toggle('active', b.textContent === letter));
+  document.getElementById('catalog-detail').style.display = 'none';
+  document.getElementById('catalog-list').style.display = '';
+  document.getElementById('catalog-info').textContent = 'Lade...';
+  try {
+    const r = await fetch(API + '/api/dashboard/catalog/anime?letter=' + encodeURIComponent(letter));
+    const data = await r.json();
+    renderAnimeList(data, `${data.length} Anime mit "${letter}"`);
+  } catch(e) { toast('Fehler: ' + e, false); }
+}
+
+async function catalogSearch() {
+  const q = document.getElementById('catalog-search').value.trim();
+  if (!q) return;
+  document.querySelectorAll('.letter-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('catalog-detail').style.display = 'none';
+  document.getElementById('catalog-list').style.display = '';
+  document.getElementById('catalog-info').textContent = 'Suche...';
+  try {
+    const r = await fetch(API + '/api/dashboard/catalog/anime?q=' + encodeURIComponent(q));
+    const data = await r.json();
+    renderAnimeList(data, `${data.length} Ergebnis${data.length !== 1 ? 'se' : ''} für "${q}"`);
+  } catch(e) { toast('Fehler: ' + e, false); }
+}
+
+function renderAnimeList(anime, info) {
+  document.getElementById('catalog-info').textContent = info;
+  const el = document.getElementById('catalog-list');
+  if (!anime || anime.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);">Keine Anime gefunden.</div>';
+    return;
+  }
+  el.innerHTML = anime.map(a => `
+    <div class="anime-card" onclick="loadAnimeDetail('${a.slug}')">
+      <h3>${a.title}</h3>
+      <div class="meta">
+        ${a.slug}
+        ${a.season_count ? ` — ${a.season_count} Staffel${a.season_count > 1 ? 'n' : ''}` : ''}
+        ${a.has_movies ? ' — 🎬 Filme' : ''}
+        ${a.last_scraped ? ' — ✅ Details' : ' — ⏳ Pending'}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadAnimeDetail(slug) {
+  document.getElementById('catalog-list').style.display = 'none';
+  const detail = document.getElementById('catalog-detail');
+  detail.style.display = '';
+  detail.innerHTML = '<div style="color:var(--muted);">Lade Details...</div>';
+  try {
+    const r = await fetch(API + '/api/dashboard/catalog/anime/' + encodeURIComponent(slug));
+    const a = await r.json();
+    let html = `
+      <div class="back-btn" onclick="backToList()">← Zurück zur Liste</div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px;">
+        ${a.cover_url ? `<img src="${a.cover_url}" style="width:120px; border-radius:8px;" onerror="this.style.display='none'">` : ''}
+        <div style="flex:1; min-width:200px;">
+          <h2 style="margin-bottom:8px;">${a.title}</h2>
+          <div style="font-size:0.85rem; color:var(--muted); margin-bottom:8px;">
+            Slug: ${a.slug}<br>
+            ${a.season_count ? `Staffeln: ${a.season_count}` : ''}
+            ${a.has_movies ? ' | Filme: Ja' : ''}
+          </div>
+          ${a.description ? `<p style="font-size:0.85rem; line-height:1.5; max-height:120px; overflow-y:auto;">${a.description}</p>` : ''}
+        </div>
+      </div>
+    `;
+
+    // Season buttons
+    if (a.season_count > 0) {
+      html += '<div style="margin-bottom:12px;">';
+      for (let i = 1; i <= a.season_count; i++) {
+        html += `<button class="letter-btn" onclick="loadEpisodes('${slug}', ${i})" style="margin:2px;">Staffel ${i}</button>`;
+      }
+      if (a.has_movies) {
+        html += `<button class="letter-btn" onclick="loadEpisodes('${slug}', 0)" style="margin:2px;">🎬 Filme</button>`;
+      }
+      html += '</div>';
+    }
+    html += '<div id="episode-list"></div>';
+    detail.innerHTML = html;
+  } catch(e) { detail.innerHTML = '<div style="color:var(--red);">Fehler beim Laden.</div>'; }
+}
+
+async function loadEpisodes(slug, season) {
+  const el = document.getElementById('episode-list');
+  el.innerHTML = '<div style="color:var(--muted);">Lade Episoden...</div>';
+  try {
+    const url = season === 0
+      ? API + '/api/dashboard/catalog/anime/' + slug + '/films/episodes'
+      : API + '/api/dashboard/catalog/anime/' + slug + '/season/' + season + '/episodes';
+    const r = await fetch(url);
+    const eps = await r.json();
+    if (!eps || eps.length === 0) {
+      el.innerHTML = '<div style="color:var(--muted);">Keine Episoden gefunden. Noch nicht gescraped?</div>';
+      return;
+    }
+    el.innerHTML = `
+      <div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden;">
+        ${eps.map(ep => `
+          <div class="episode-row">
+            <strong>E${ep.episode_number || ep.number || '?'}</strong>
+            ${ep.title ? ` — ${ep.title}` : ''}
+            ${ep.title_en ? ` <span style="color:var(--muted);">(${ep.title_en})</span>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  } catch(e) { el.innerHTML = '<div style="color:var(--red);">Fehler beim Laden.</div>'; }
+}
+
+function backToList() {
+  document.getElementById('catalog-detail').style.display = 'none';
+  document.getElementById('catalog-list').style.display = '';
 }
 
 // Init
