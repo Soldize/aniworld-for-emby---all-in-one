@@ -170,6 +170,52 @@ EOF
     echo -e "${GREEN}✅ Config: $CONFIG_DIR/config.ini${NC}"
 }
 
+set_dashboard_password() {
+    echo ""
+    echo -e "${YELLOW}Dashboard Passwort-Schutz:${NC}"
+    echo ""
+    while true; do
+        read -sp "Dashboard Passwort festlegen (mind. 4 Zeichen): " pw1
+        echo ""
+        if [ ${#pw1} -lt 4 ]; then
+            echo -e "${RED}Passwort muss mindestens 4 Zeichen haben!${NC}"
+            continue
+        fi
+        read -sp "Passwort bestätigen: " pw2
+        echo ""
+        if [ "$pw1" != "$pw2" ]; then
+            echo -e "${RED}Passwörter stimmen nicht überein!${NC}"
+            continue
+        fi
+        break
+    done
+
+    local auth_json
+    auth_json=$(python3 -c "
+import hashlib, secrets, json
+salt = secrets.token_hex(16)
+hashed = hashlib.sha256((salt + '${pw1}').encode()).hexdigest()
+print(json.dumps({'salt': salt, 'hash': hashed}))
+")
+    echo "$auth_json" > "$CONFIG_DIR/auth.json"
+    chmod 600 "$CONFIG_DIR/auth.json"
+    chown emby:emby "$CONFIG_DIR/auth.json"
+    echo -e "${GREEN}✅ Dashboard Passwort gesetzt${NC}"
+}
+
+reset_dashboard_password() {
+    echo ""
+    echo -e "${YELLOW}Dashboard Passwort zurücksetzen:${NC}"
+    if [ ! -f "$CONFIG_DIR/auth.json" ]; then
+        echo -e "  Kein Passwort konfiguriert."
+    fi
+    set_dashboard_password
+    systemctl restart aniworld-proxy 2>/dev/null || true
+    echo -e "${GREEN}✅ Passwort zurückgesetzt. Proxy neugestartet.${NC}"
+    echo ""
+    read -p "Drücke Enter für Menü..."
+}
+
 install_services() {
     echo -e "${YELLOW}Installiere systemd Services...${NC}"
 
@@ -339,6 +385,7 @@ full_install() {
     download_files
     install_venv
     configure
+    set_dashboard_password
     install_services
     set_permissions
 
@@ -567,11 +614,12 @@ show_menu() {
     echo -e "  ${CYAN}3)${NC} Config ändern             Ports/Pfade anpassen + Restart"
     echo -e "  ${CYAN}4)${NC} Services neustarten       Alle Services restarten"
     echo -e "  ${CYAN}5)${NC} Status                    Service-Status anzeigen"
-    echo -e "  ${CYAN}6)${NC} Deinstallieren            Alles entfernen"
-    echo -e "  ${CYAN}7)${NC} Anleitung                 Wie funktioniert das alles?"
+    echo -e "  ${CYAN}6)${NC} Passwort zurücksetzen     Dashboard Passwort neu setzen"
+    echo -e "  ${CYAN}7)${NC} Deinstallieren            Alles entfernen"
+    echo -e "  ${CYAN}8)${NC} Anleitung                 Wie funktioniert das alles?"
     echo -e "  ${CYAN}0)${NC} Beenden"
     echo ""
-    read -p "Auswahl [1-7/0]: " choice
+    read -p "Auswahl [1-8/0]: " choice
 }
 
 uninstall() {
@@ -759,8 +807,9 @@ while true; do
         3) configure; install_services; set_permissions; restart_services ;;
         4) restart_services ;;
         5) status_check; read -p "Enter für Menü..." ;;
-        6) uninstall ;;
-        7) show_guide ;;
+        6) reset_dashboard_password ;;
+        7) uninstall ;;
+        8) show_guide ;;
         0) echo "Bye! 👋"; exit 0 ;;
         *) echo -e "${RED}Ungültige Auswahl${NC}"; sleep 1 ;;
     esac

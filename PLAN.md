@@ -118,12 +118,14 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [ ] Live-Logs von API-Server + Metadata-Server
 - [ ] Filter nach Level (INFO/WARNING/ERROR)
 
-#### Dashboard: Auth/Passwort-Schutz
-- [ ] Bei Installation: Passwort anlegen (Pflicht)
-- [ ] Dashboard Login-Seite
-- [ ] Im Dashboard: Einstellungs-Option zum Passwort ändern
-- [ ] Install-Menü: Option "Passwort zurücksetzen" (neues Passwort setzen)
-- [ ] Session/Token-basiert (kein Login bei jedem Request)
+#### Dashboard: Auth/Passwort-Schutz ✅
+- [x] Bei Installation: Passwort anlegen (Pflicht)
+- [x] Dashboard Login-Seite
+- [x] Im Dashboard: Einstellungs-Option zum Passwort ändern
+- [x] Install-Menü: Option "Passwort zurücksetzen" (Menüpunkt 6)
+- [x] Session/Token-basiert (Cookie, 24h gültig)
+- [x] /play/* offen für Emby, Dashboard geschützt
+- [x] SHA-256 + Salt, auth.json in /etc/aniworld/
 
 #### Emby Library Auto-Setup
 - [ ] Bei Installation fragen: "Wie soll die Library heißen?" (Default: AniWorld)

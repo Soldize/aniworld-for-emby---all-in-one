@@ -52,6 +52,8 @@ Nach der Installation erreichbar unter: **http://localhost:5081/**
 - **Detail Scrape:** Batch (alle) oder einzeln per Slug, mit Fortschrittsbalken
 - **Config:** Direkt im Browser bearbeiten und speichern
 - Buttons werden automatisch gesperrt solange ein Prozess läuft
+- **Passwort-geschützt:** Login erforderlich, Passwort im Dashboard änderbar
+- Logout-Button, Emby-Streams (/play/*) bleiben offen
 
 Das Dashboard ist responsive und passt sich an Desktop, Tablet und Mobile an.
 

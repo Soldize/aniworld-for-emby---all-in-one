@@ -8,16 +8,19 @@ AniWorld Proxy Server + Dashboard
 
 import asyncio
 import configparser
+import hashlib
+import json
 import logging
 import os
+import secrets
 import signal
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 import uvicorn
 
@@ -43,7 +46,97 @@ logging.basicConfig(
 )
 log = logging.getLogger("aniworld-proxy")
 
+# ========================
+# Auth System
+# ========================
+AUTH_FILE = os.path.join(os.path.dirname(CONFIG_PATH), "auth.json")
+SESSION_TTL_HOURS = 24
+_sessions = {}  # token -> expiry datetime
+
+
+def _hash_password(password):
+    """Hash password with SHA-256 + salt."""
+    salt = secrets.token_hex(16)
+    hashed = hashlib.sha256((salt + password).encode()).hexdigest()
+    return {"salt": salt, "hash": hashed}
+
+
+def _verify_password(password, stored):
+    """Verify password against stored hash."""
+    hashed = hashlib.sha256((stored["salt"] + password).encode()).hexdigest()
+    return hashed == stored["hash"]
+
+
+def _load_auth():
+    """Load auth config. Returns None if no auth set up."""
+    try:
+        if os.path.exists(AUTH_FILE):
+            with open(AUTH_FILE, 'r') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
+def _save_auth(auth_data):
+    """Save auth config."""
+    with open(AUTH_FILE, 'w') as f:
+        json.dump(auth_data, f)
+    os.chmod(AUTH_FILE, 0o600)
+
+
+def _auth_enabled():
+    """Check if auth is configured."""
+    auth = _load_auth()
+    return auth is not None and "hash" in auth
+
+
+def _create_session():
+    """Create a new session token."""
+    token = secrets.token_hex(32)
+    _sessions[token] = datetime.now() + timedelta(hours=SESSION_TTL_HOURS)
+    # Cleanup expired sessions
+    now = datetime.now()
+    expired = [t for t, exp in _sessions.items() if exp < now]
+    for t in expired:
+        del _sessions[t]
+    return token
+
+
+def _valid_session(token):
+    """Check if session token is valid."""
+    if not token or token not in _sessions:
+        return False
+    if _sessions[token] < datetime.now():
+        del _sessions[token]
+        return False
+    return True
+
+
+def _check_auth(request: Request):
+    """Check if request is authenticated. Returns True if ok, False if needs login."""
+    if not _auth_enabled():
+        return True  # No password set = open access
+    token = request.cookies.get("aniworld_session")
+    return _valid_session(token)
+
+
 app = FastAPI(title="AniWorld Proxy", docs_url=None, redoc_url=None)
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Protect dashboard routes. /play/*, /health, /login, /api/auth/* are open."""
+    path = request.url.path
+    open_paths = ["/play/", "/health", "/login", "/api/auth/"]
+    if any(path.startswith(p) for p in open_paths):
+        return await call_next(request)
+    if path == "/" or path.startswith("/api/dashboard"):
+        if not _check_auth(request):
+            if path.startswith("/api/"):
+                return JSONResponse({"detail": "Nicht angemeldet"}, status_code=401)
+            return RedirectResponse(url="/login", status_code=302)
+    return await call_next(request)
 
 # --- Sync Process State ---
 sync_process = None
@@ -116,6 +209,123 @@ async def play(slug: str, season: int, episode: int):
 @app.get("/health")
 async def health():
     return {"status": "ok", "api": API_BASE}
+
+
+# ========================
+# Auth Endpoints
+# ========================
+
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AniWorld Dashboard - Login</title>
+<style>
+  :root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --text: #e4e4e7; --accent: #6c5ce7; --red: #e17055; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Segoe UI', Roboto, monospace; background: var(--bg); color: var(--text);
+    display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+  .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 32px; width: 100%; max-width: 360px; }
+  h1 { font-size: 1.3rem; text-align: center; margin-bottom: 24px; }
+  h1 span { font-size: 1.5rem; }
+  input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text); font-size: 0.95rem; margin-bottom: 16px; }
+  input:focus { outline: none; border-color: var(--accent); }
+  button { width: 100%; padding: 10px; border: none; border-radius: 6px; background: var(--accent);
+    color: #fff; font-size: 0.95rem; font-weight: 600; cursor: pointer; }
+  button:hover { opacity: 0.9; }
+  .error { color: var(--red); font-size: 0.85rem; text-align: center; margin-bottom: 12px; display: none; }
+</style>
+</head>
+<body>
+<div class="login-box">
+  <h1><span>🎬</span> AniWorld Dashboard</h1>
+  <div class="error" id="error">Falsches Passwort</div>
+  <form onsubmit="return login(event)">
+    <input type="password" id="password" placeholder="Passwort" autofocus>
+    <button type="submit">Anmelden</button>
+  </form>
+</div>
+<script>
+async function login(e) {
+  e.preventDefault();
+  const pw = document.getElementById('password').value;
+  const r = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: pw})
+  });
+  if (r.ok) { window.location.href = '/'; }
+  else { document.getElementById('error').style.display = 'block'; }
+  return false;
+}
+</script>
+</body>
+</html>"""
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    if not _auth_enabled():
+        return RedirectResponse(url="/", status_code=302)
+    return LOGIN_HTML
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    body = await request.json()
+    password = body.get("password", "")
+    auth = _load_auth()
+    if not auth or not _verify_password(password, auth):
+        raise HTTPException(status_code=401, detail="Falsches Passwort")
+    token = _create_session()
+    response = JSONResponse({"status": "ok"})
+    response.set_cookie("aniworld_session", token, httponly=True, max_age=SESSION_TTL_HOURS * 3600, samesite="lax")
+    return response
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    token = request.cookies.get("aniworld_session")
+    if token in _sessions:
+        del _sessions[token]
+    response = JSONResponse({"status": "ok"})
+    response.delete_cookie("aniworld_session")
+    return response
+
+
+@app.post("/api/auth/change-password")
+async def auth_change_password(request: Request):
+    if not _check_auth(request):
+        raise HTTPException(status_code=401, detail="Nicht angemeldet")
+    body = await request.json()
+    current = body.get("current", "")
+    new_pw = body.get("new", "")
+    if not new_pw or len(new_pw) < 4:
+        raise HTTPException(status_code=400, detail="Passwort muss mindestens 4 Zeichen haben")
+    auth = _load_auth()
+    if auth and not _verify_password(current, auth):
+        raise HTTPException(status_code=401, detail="Aktuelles Passwort falsch")
+    _save_auth(_hash_password(new_pw))
+    return {"status": "ok"}
+
+
+@app.post("/api/auth/set-password")
+async def auth_set_password(request: Request):
+    """Set initial password (only if no password configured yet)."""
+    if _auth_enabled():
+        raise HTTPException(status_code=403, detail="Passwort bereits gesetzt. Nutze 'Passwort ändern'.")
+    body = await request.json()
+    new_pw = body.get("password", "")
+    if not new_pw or len(new_pw) < 4:
+        raise HTTPException(status_code=400, detail="Passwort muss mindestens 4 Zeichen haben")
+    _save_auth(_hash_password(new_pw))
+    token = _create_session()
+    response = JSONResponse({"status": "ok"})
+    response.set_cookie("aniworld_session", token, httponly=True, max_age=SESSION_TTL_HOURS * 3600, samesite="lax")
+    return response
 
 
 # ========================
@@ -434,6 +644,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </div>
 </div>
 
+<!-- Einstellungen -->
+<div class="section">
+  <h2>Einstellungen</h2>
+  <div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px;">
+    <h3 style="font-size:0.9rem; color:var(--muted); margin-bottom:12px;">PASSWORT</h3>
+    <div id="pw-section"></div>
+  </div>
+  <div style="margin-top:12px;">
+    <button class="btn btn-stop" onclick="logout()" id="btn-logout" style="width:auto;">🚪 Abmelden</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -687,9 +909,57 @@ async function detailSingle() {
   } catch(e) { toast('Fehler: ' + e, false); document.getElementById('detail-result').textContent = '❌ ' + e; }
 }
 
+async function logout() {
+  await fetch(API + '/api/auth/logout', {method:'POST'});
+  window.location.href = '/login';
+}
+
+function renderPwSection() {
+  const sec = document.getElementById('pw-section');
+  // Check if auth is enabled by trying a quick test
+  sec.innerHTML = `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:end;">
+      <div>
+        <label style="font-size:0.8rem; color:var(--muted);">Aktuelles Passwort</label>
+        <input type="password" id="pw-current" style="display:block; padding:6px 10px; border:1px solid var(--border);
+          border-radius:4px; background:var(--bg); color:var(--text); font-size:0.85rem; width:180px; margin-top:4px;">
+      </div>
+      <div>
+        <label style="font-size:0.8rem; color:var(--muted);">Neues Passwort</label>
+        <input type="password" id="pw-new" style="display:block; padding:6px 10px; border:1px solid var(--border);
+          border-radius:4px; background:var(--bg); color:var(--text); font-size:0.85rem; width:180px; margin-top:4px;">
+      </div>
+      <button class="btn btn-save" onclick="changePw()" style="height:34px;">Ändern</button>
+    </div>
+    <div id="pw-result" style="margin-top:8px; font-size:0.8rem; color:var(--muted);"></div>
+  `;
+}
+
+async function changePw() {
+  const current = document.getElementById('pw-current').value;
+  const newPw = document.getElementById('pw-new').value;
+  if (!newPw || newPw.length < 4) { toast('Passwort muss mind. 4 Zeichen haben', false); return; }
+  try {
+    const r = await fetch(API + '/api/auth/change-password', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({current, "new": newPw})
+    });
+    if (r.ok) {
+      toast('Passwort geändert!');
+      document.getElementById('pw-current').value = '';
+      document.getElementById('pw-new').value = '';
+    } else {
+      const e = await r.json();
+      toast(e.detail || 'Fehler', false);
+    }
+  } catch(e) { toast('Fehler: ' + e, false); }
+}
+
 // Init
 fetchStatus();
 loadConfig();
+renderPwSection();
 setInterval(fetchStatus, 5000);
 </script>
 </body>
