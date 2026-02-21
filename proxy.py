@@ -839,7 +839,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1><span>🎬</span> AniWorld Dashboard</h1>
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+  <h1 style="margin-bottom:0;"><span>🎬</span> AniWorld Dashboard</h1>
+  <button class="btn btn-stop" onclick="logout()" style="width:auto; font-size:0.8rem; padding:6px 14px;">🚪 Abmelden</button>
+</div>
 
 <!-- Tab Navigation -->
 <div class="tabs">
@@ -926,9 +929,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px;">
     <h3 style="font-size:0.9rem; color:var(--muted); margin-bottom:12px;">PASSWORT</h3>
     <div id="pw-section"></div>
-  </div>
-  <div>
-    <button class="btn btn-stop" onclick="logout()" id="btn-logout" style="width:auto;">🚪 Abmelden</button>
   </div>
 </div>
 </div><!-- /tab-settings -->
