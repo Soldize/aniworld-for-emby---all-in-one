@@ -93,10 +93,12 @@ install_deps() {
     echo -e "${GREEN}✅ Abhängigkeiten installiert (Python, curl, unzip)${NC}"
 }
 
-install_files() {
+create_dirs() {
     echo -e "${YELLOW}Erstelle Verzeichnisse...${NC}"
     mkdir -p "$INSTALL_DIR" "$DATA_DIR" "$DATA_DIR/covers" "$CONFIG_DIR" "$MEDIA_PATH"
+}
 
+download_files() {
     echo -e "${YELLOW}Lade Dateien von GitHub...${NC}"
     local failed=0
     for f in $REQUIRED_FILES; do
@@ -113,7 +115,7 @@ install_files() {
         echo -e "${RED}FEHLER: Nicht alle Dateien konnten heruntergeladen werden!${NC}"
         echo -e "${RED}Prüfe deine Internetverbindung und ob das Repo existiert:${NC}"
         echo -e "${RED}https://github.com/$GITHUB_REPO${NC}"
-        exit 1
+        return 1
     fi
     echo -e "${GREEN}✅ Alle Dateien heruntergeladen${NC}"
 }
@@ -333,7 +335,8 @@ full_install() {
     echo -e "${BOLD}Starte Komplettinstallation...${NC}"
     echo ""
     install_deps
-    install_files
+    create_dirs
+    download_files
     install_venv
     configure
     install_services
@@ -552,16 +555,40 @@ check_for_updates() {
 perform_github_update() {
     local new_version="$1"
 
-    # Dateien von GitHub laden (gleiche Funktion wie bei Install)
-    install_files
+    echo ""
+
+    # Dateien von GitHub laden
+    download_files
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Update fehlgeschlagen!${NC}"
+        read -p "Drücke Enter für Menü..."
+        return
+    fi
+
+    # Python Pakete aktualisieren
     install_venv
+
+    # Berechtigungen setzen
     set_permissions
 
     # Version speichern
     save_version "$new_version"
 
     # Services neustarten
-    restart_services
+    echo ""
+    echo -e "${YELLOW}Starte Services neu...${NC}"
+    systemctl daemon-reload
+    systemctl restart aniworld-api
+    sleep 3
+    systemctl restart aniworld-metadata
+    sleep 2
+    systemctl restart aniworld-proxy
+    sleep 2
+    systemctl enable --now aniworld-sync.timer 2>/dev/null || true
+
+    # Verifizieren
+    echo ""
+    verify_services
 
     echo -e "${GREEN}=========================================${NC}"
     echo -e "${GREEN} ✅ Update auf $new_version abgeschlossen!${NC}"
