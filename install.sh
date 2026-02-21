@@ -4,7 +4,7 @@
 # API Server + Metadata Server + Proxy/Dashboard + Sync
 # Für Ubuntu 24.04 LTS / Debian 12+
 # =========================================
-set -e
+# Kein set -e: Installer hat viele optionale Checks die non-zero returnen können
 
 INSTALL_DIR="/opt/aniworld"
 DATA_DIR="/opt/aniworld/data"
@@ -341,13 +341,15 @@ full_install() {
 
     # Version von GitHub holen und speichern
     if command -v curl &>/dev/null; then
-        local ver
-        ver=$(curl -s "$GITHUB_API/releases/latest" 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+')
+        local ver=""
+        ver=$(curl -s "$GITHUB_API/releases/latest" 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' || true)
         if [ -z "$ver" ]; then
-            ver=$(curl -s "$GITHUB_API/commits/main" 2>/dev/null | grep -oP '"sha":\s*"\K[^"]+' | head -1)
+            ver=$(curl -s "$GITHUB_API/commits/main" 2>/dev/null | grep -oP '"sha":\s*"\K[^"]+' | head -1 || true)
             ver="${ver:0:7}"
         fi
-        [ -n "$ver" ] && save_version "$ver"
+        if [ -n "$ver" ]; then
+            save_version "$ver"
+        fi
     fi
 
     start_services
