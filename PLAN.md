@@ -114,6 +114,9 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] Dashboard: Sync-Ergebnis anzeigen (neue Anime, Updates, Fehler-Count, Polling)
 - [x] Dashboard: Doppelklick-Schutz bei Sync-Buttons (409 wenn schon läuft)
 - [x] Installer: Playwright + Chromium automatisch installiert (auch via Update-Check)
+- [x] Dashboard: "🆕 Neu" Tab (zuletzt hinzugefügte Anime/Episoden/Staffeln/Filme, filterbar)
+- [x] Auto Emby Library Scan nach Incremental Sync + Sync-Service (wenn [emby] Config vorhanden)
+- [x] recent_changes Tabelle trackt alle Änderungen
 
 ### 🔨 Offen / Geplant
 
