@@ -18,6 +18,12 @@ port = 5081
 # Pfad für .strm/.nfo Dateien (Emby Library zeigt hierhin)
 media_path = /media/aniworld
 
+[anidb]
+# AniDB Client (registrieren unter https://anidb.net/software/add)
+# Ohne Client werden AniDB-Episodentitel übersprungen
+client = REGISTER_PENDING
+client_version = 1
+
 [preferences]
 language = Deutsch
 hoster = VOE

@@ -56,11 +56,15 @@ load_config() {
         META_PORT=$(sed -n '/\[metadata\]/,/\[/{/^port/s/.*= //p}' "$CONFIG_DIR/config.ini" 2>/dev/null || echo "5090")
         PROXY_PORT=$(sed -n '/\[proxy\]/,/\[/{/^port/s/.*= //p}' "$CONFIG_DIR/config.ini" 2>/dev/null || echo "5081")
         MEDIA_PATH=$(sed -n '/\[sync\]/,/\[/{/^media_path/s/.*= //p}' "$CONFIG_DIR/config.ini" 2>/dev/null || echo "$MEDIA_DIR")
+        ANIDB_CLIENT=$(sed -n '/\[anidb\]/,/\[/{/^client /s/.*= //p}' "$CONFIG_DIR/config.ini" 2>/dev/null || echo "REGISTER_PENDING")
+        ANIDB_CLIENT_VER=$(sed -n '/\[anidb\]/,/\[/{/^client_version/s/.*= //p}' "$CONFIG_DIR/config.ini" 2>/dev/null || echo "1")
     fi
     API_PORT=${API_PORT:-5080}
     META_PORT=${META_PORT:-5090}
     PROXY_PORT=${PROXY_PORT:-5081}
     MEDIA_PATH=${MEDIA_PATH:-$MEDIA_DIR}
+    ANIDB_CLIENT=${ANIDB_CLIENT:-REGISTER_PENDING}
+    ANIDB_CLIENT_VER=${ANIDB_CLIENT_VER:-1}
 }
 
 status_check() {
@@ -165,6 +169,21 @@ configure() {
 
     mkdir -p "$MEDIA_PATH"
 
+    echo ""
+    echo -e "${YELLOW}AniDB Client (optional):${NC}"
+    echo "  Für Episodentitel auf Deutsch/Japanisch von AniDB."
+    echo "  Client registrieren: https://anidb.net/software/add"
+    echo "  Ohne Client werden AniDB-Daten übersprungen."
+    echo ""
+    ANIDB_CLIENT=${ANIDB_CLIENT:-REGISTER_PENDING}
+    ANIDB_CLIENT_VER=${ANIDB_CLIENT_VER:-1}
+    read -p "AniDB Client Name [$ANIDB_CLIENT]: " input
+    ANIDB_CLIENT=${input:-$ANIDB_CLIENT}
+    if [ "$ANIDB_CLIENT" != "REGISTER_PENDING" ]; then
+        read -p "AniDB Client Version [$ANIDB_CLIENT_VER]: " input
+        ANIDB_CLIENT_VER=${input:-$ANIDB_CLIENT_VER}
+    fi
+
     cat > "$CONFIG_DIR/config.ini" << EOF
 [api]
 port = $API_PORT
@@ -175,6 +194,10 @@ port = $META_PORT
 db_path = $DATA_DIR/metadata.db
 covers_dir = $DATA_DIR/covers
 anidb_titles_path = $DATA_DIR/anidb-titles.xml.gz
+
+[anidb]
+client = $ANIDB_CLIENT
+client_version = $ANIDB_CLIENT_VER
 
 [proxy]
 port = $PROXY_PORT

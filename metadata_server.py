@@ -47,8 +47,8 @@ NIGHTLY_HOUR_UTC = 3
 # AniDB config
 # Set ANIDB_CLIENT env var after client registration.
 # Leave as "REGISTER_PENDING" until then (all AniDB calls will be skipped).
-ANIDB_CLIENT = os.environ.get("ANIDB_CLIENT", "REGISTER_PENDING")
-ANIDB_CLIENT_VER = int(os.environ.get("ANIDB_CLIENT_VER", "1"))
+ANIDB_CLIENT = _cfg.get("anidb", "client", fallback=os.environ.get("ANIDB_CLIENT", "REGISTER_PENDING"))
+ANIDB_CLIENT_VER = _cfg.getint("anidb", "client_version", fallback=int(os.environ.get("ANIDB_CLIENT_VER", "1")))
 ANIDB_API_URL = "http://api.anidb.net:9001/httpapi"
 ANIDB_TITLES_URL = "http://anidb.net/api/anime-titles.xml.gz"
 ANIDB_TITLES_PATH = _cfg.get("metadata", "anidb_titles_path", fallback="/opt/aniworld/data/anidb-titles.xml.gz")
