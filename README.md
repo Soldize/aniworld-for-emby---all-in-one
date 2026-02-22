@@ -26,7 +26,7 @@ Anime-Streaming von aniworld.to in Emby - als native TV-Show Library.
 ## Installation
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Soldize/emby-aniworld-sync-proxy/main/install.sh -o install.sh
+curl -sL https://raw.githubusercontent.com/Soldize/aniworld-for-emby---all-in-one/main/install.sh -o install.sh
 chmod +x install.sh
 sudo ./install.sh
 ```
