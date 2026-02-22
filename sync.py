@@ -111,6 +111,20 @@ def fetch_metadata(slug):
         return None
 
 
+def fetch_episode_metadata(slug, season):
+    """Fetch per-episode metadata (titles, airdate, summary) from Metadata server."""
+    try:
+        resp = requests.get(f"{META_BASE}/metadata/{slug}/episodes?season={season}", timeout=15)
+        if resp.status_code == 404:
+            return {}
+        resp.raise_for_status()
+        data = resp.json()
+        # Return as dict keyed by episode_number
+        return {ep["episode_number"]: ep for ep in data}
+    except Exception:
+        return {}
+
+
 def download_cover(url, dest_path):
     """Download cover image to dest_path if not already cached."""
     if os.path.exists(dest_path):
@@ -128,40 +142,84 @@ def download_cover(url, dest_path):
 
 
 def write_tvshow_nfo(show_dir, anime_name, metadata):
-    """Write tvshow.nfo for an anime series."""
+    """Write tvshow.nfo for an anime series. Updates if missing plot."""
     nfo_path = os.path.join(show_dir, "tvshow.nfo")
+
+    # Skip if exists and already has a plot
+    if os.path.exists(nfo_path):
+        try:
+            with open(nfo_path, 'r', encoding='utf-8') as f:
+                if "<plot>" in f.read():
+                    return
+        except Exception:
+            pass
 
     root = ET.Element("tvshow")
     ET.SubElement(root, "title").text = anime_name
     ET.SubElement(root, "sorttitle").text = anime_name
 
     if metadata:
-        if metadata.get("description"):
-            ET.SubElement(root, "plot").text = metadata["description"]
+        # Original title (Japanese/Romaji)
+        if metadata.get("title_native"):
+            ET.SubElement(root, "originaltitle").text = metadata["title_native"]
+        elif metadata.get("title_romaji"):
+            ET.SubElement(root, "originaltitle").text = metadata["title_romaji"]
+
+        # Description - prefer German, fallback English
+        description = metadata.get("description_de") or metadata.get("description_en") or metadata.get("description")
+        if description:
+            ET.SubElement(root, "plot").text = description
+
         if metadata.get("genres"):
             for genre in metadata["genres"]:
                 ET.SubElement(root, "genre").text = genre
+        if metadata.get("tags"):
+            for tag in metadata["tags"]:
+                tag_name = tag.get("name", tag) if isinstance(tag, dict) else tag
+                ET.SubElement(root, "tag").text = tag_name
         if metadata.get("rating"):
             ET.SubElement(root, "rating").text = str(metadata["rating"])
         if metadata.get("year"):
             ET.SubElement(root, "year").text = str(metadata["year"])
         if metadata.get("studio"):
             ET.SubElement(root, "studio").text = metadata["studio"]
+        if metadata.get("status"):
+            ET.SubElement(root, "status").text = metadata["status"]
+
+        # External IDs
+        if metadata.get("anilist_id"):
+            uid = ET.SubElement(root, "uniqueid", type="anilist")
+            uid.text = str(metadata["anilist_id"])
+        if metadata.get("mal_id"):
+            uid = ET.SubElement(root, "uniqueid", type="myanimelist")
+            uid.text = str(metadata["mal_id"])
+        if metadata.get("anidb_id"):
+            uid = ET.SubElement(root, "uniqueid", type="anidb")
+            uid.text = str(metadata["anidb_id"])
 
     with open(nfo_path, 'w', encoding='utf-8') as f:
         f.write(pretty_xml(root))
 
 
-def write_episode_nfo(nfo_path, anime_name, season, episode, title=None, metadata=None):
+def write_episode_nfo(nfo_path, anime_name, season, episode, title=None, ep_meta=None):
     """Write episode .nfo file."""
     root = ET.Element("episodedetails")
-    ET.SubElement(root, "title").text = title or f"Episode {episode}"
+
+    # Prefer German title from AniDB, fallback to scraped title
+    ep_title = title or f"Episode {episode}"
+    if ep_meta:
+        ep_title = ep_meta.get("title_de") or ep_meta.get("title_en") or ep_title
+
+    ET.SubElement(root, "title").text = ep_title
     ET.SubElement(root, "showtitle").text = anime_name
     ET.SubElement(root, "season").text = str(season)
     ET.SubElement(root, "episode").text = str(episode)
 
-    if metadata and metadata.get("description"):
-        ET.SubElement(root, "plot").text = metadata.get("description", "")
+    if ep_meta:
+        if ep_meta.get("summary"):
+            ET.SubElement(root, "plot").text = ep_meta["summary"]
+        if ep_meta.get("airdate"):
+            ET.SubElement(root, "aired").text = ep_meta["airdate"]
 
     with open(nfo_path, 'w', encoding='utf-8') as f:
         f.write(pretty_xml(root))
@@ -214,23 +272,27 @@ def sync_anime(anime, metadata):
     for s in seasons:
         season_num = s.get("number", 1)
         episodes = fetch_season_episodes(slug, season_num)
+        ep_metadata = fetch_episode_metadata(slug, season_num)
         for ep in episodes:
             ep_num = ep.get("episodeNumber", 1)
             ep_title = ep.get("title", f"Episode {ep_num}")
-            ep_count += _write_episode(show_dir, safe_name, name, slug, season_num, ep_num, ep_title)
+            ep_meta = ep_metadata.get(ep_num)
+            ep_count += _write_episode(show_dir, safe_name, name, slug, season_num, ep_num, ep_title, ep_meta)
 
     # Films (season 0)
     if has_movies:
         films = fetch_film_episodes(slug)
+        ep_metadata = fetch_episode_metadata(slug, 0)
         for ep in films:
             ep_num = ep.get("episodeNumber", 1)
             ep_title = ep.get("title", f"Film {ep_num}")
-            ep_count += _write_episode(show_dir, safe_name, name, slug, 0, ep_num, ep_title)
+            ep_meta = ep_metadata.get(ep_num)
+            ep_count += _write_episode(show_dir, safe_name, name, slug, 0, ep_num, ep_title, ep_meta)
 
     return ep_count
 
 
-def _write_episode(show_dir, safe_name, anime_name, slug, season, ep_num, ep_title):
+def _write_episode(show_dir, safe_name, anime_name, slug, season, ep_num, ep_title, ep_meta=None):
     """Write a single .strm + .nfo episode. Returns 1 if new, 0 if already exists."""
 
     # Season directory
@@ -254,15 +316,28 @@ def _write_episode(show_dir, safe_name, anime_name, slug, season, ep_num, ep_tit
     strm_path = os.path.join(season_dir, f"{base_name}.strm")
     nfo_path = os.path.join(season_dir, f"{base_name}.nfo")
 
-    # Skip if both files already exist
-    if os.path.exists(strm_path) and os.path.exists(nfo_path):
-        return 0
-
+    # Write .strm if missing
     if not os.path.exists(strm_path):
         write_strm(strm_path, slug, season, ep_num)
 
+    # Write .nfo if missing OR if it has no plot and we now have metadata
+    nfo_needs_update = False
     if not os.path.exists(nfo_path):
-        write_episode_nfo(nfo_path, anime_name, season, ep_num, ep_title)
+        nfo_needs_update = True
+    elif ep_meta and (ep_meta.get("summary") or ep_meta.get("airdate")):
+        # Check if existing nfo is missing plot
+        try:
+            with open(nfo_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            if "<plot>" not in content:
+                nfo_needs_update = True
+        except Exception:
+            nfo_needs_update = True
+
+    if nfo_needs_update:
+        write_episode_nfo(nfo_path, anime_name, season, ep_num, ep_title, ep_meta)
+    elif os.path.exists(strm_path):
+        return 0  # Both exist and nfo is up to date
 
     return 1
 
