@@ -878,7 +878,15 @@ create_backup() {
     local timestamp
     timestamp=$(date +%Y%m%d-%H%M%S)
     local backup_file="aniworld-backup-${timestamp}.zip"
-    local backup_path="/tmp/${backup_file}"
+    local default_path="/tmp/${backup_file}"
+
+    read -p "Speicherort [$default_path]: " backup_path
+    backup_path=${backup_path:-$default_path}
+
+    # Wenn nur ein Verzeichnis angegeben wurde, Dateiname anhängen
+    if [ -d "$backup_path" ]; then
+        backup_path="${backup_path%/}/${backup_file}"
+    fi
 
     # Prüfe ob zip installiert ist
     if ! command -v zip &>/dev/null; then
