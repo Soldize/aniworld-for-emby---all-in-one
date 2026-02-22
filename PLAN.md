@@ -120,6 +120,10 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] Backup/Restore: Dashboard (ZIP Download/Upload) + Installer (Menüpunkte 7+8)
 - [x] Hoster Health-Monitoring: Erfolgsrate pro Hoster im Dashboard (✅/⚠️/❌, Auto-Refresh)
 - [x] AniDB Client über Config konfigurierbar ([anidb] Section, Installer fragt bei Erstinstall)
+- [x] NFO-Dateien: Beschreibungen (DE/EN), Originaltitel, Tags, Status, AniList/MAL/AniDB IDs, aired
+- [x] Episoden-Metadata von AniDB (title_de, summary, airdate) in episode.nfo
+- [x] NFOs ohne Plot werden beim Sync automatisch aktualisiert
+- [x] Fortschrittsanzeige für "Änderungen scrapen" (Live-Balken, Prozent, aktueller Anime)
 
 ### 🔨 Offen / Geplant
 
