@@ -11,7 +11,7 @@ Anime-Streaming von aniworld.to in Emby - als native TV-Show Library.
 - **Passwort-Schutz:** Dashboard Login mit SHA-256 Auth
 - **API Server:** Scrapt aniworld.to, cached Episoden + Stream-URLs
 - **Metadata Server:** AniList/MAL/AniDB Metadata, Cover-Bilder, Genres, Ratings
-- **Stream Proxy:** Löst Hoster-URLs on-demand auf (302 Redirect)
+- **Stream Proxy:** Löst Hoster-URLs on-demand auf (302 Redirect, VOE via Headless Chromium)
 - **Sync Service:** Erstellt .strm/.nfo Dateien für Emby Library
 - **Standalone Installer:** Eine Datei, interaktives Menü, Auto-Update von GitHub
 - **Kein Plugin nötig:** Alles über Standard-Emby-Bibliothek
@@ -21,6 +21,7 @@ Anime-Streaming von aniworld.to in Emby - als native TV-Show Library.
 - Emby Server (4.8+)
 - Python 3.10+
 - Ubuntu 24.04 LTS / Debian 12+
+- Chromium (wird automatisch via Playwright installiert)
 
 ## Installation
 

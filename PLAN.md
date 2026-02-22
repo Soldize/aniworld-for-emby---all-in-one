@@ -107,6 +107,13 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] DB-Migration: stream_cache Spalten automatisch hinzugefügt
 - [x] Stream-Playback funktioniert (getestet: hack//sign S01E01)
 - [x] Git: Gitea (meeko/) + GitHub (Soldize/)
+- [x] VOE Stream-Resolution via Playwright Headless Chromium (Bot-Schutz umgehen)
+- [x] Incremental Sync: überspringt FINISHED Anime (nur RELEASING/unknown checken)
+- [x] Incremental Sync: Quick-Check (Episode-Count vergleichen statt blind rescrape)
+- [x] Metadata-Server: `status` Feld (FINISHED/RELEASING) von AniList/Jikan
+- [x] Dashboard: Sync-Ergebnis anzeigen (neue Anime, Updates, Fehler-Count, Polling)
+- [x] Dashboard: Doppelklick-Schutz bei Sync-Buttons (409 wenn schon läuft)
+- [x] Installer: Playwright + Chromium automatisch installiert (auch via Update-Check)
 
 ### 🔨 Offen / Geplant
 
