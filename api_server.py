@@ -556,23 +556,102 @@ def resolve_stream_urls(slug, season, episode):
     log.info(f"Resolved {len(results)} streams for {slug} S{season}E{episode}")
     return results
 
-def extract_video_url(hoster_url, html):
+def _extract_voe(url, html):
+    """Extract video URL from VOE page. First tries regex, then falls back to Playwright."""
+    # Try regex first (fast path - works when VOE doesn't block)
+    for pattern in [
+        r"'(https?://[^']+\.m3u8[^']*)'",
+        r"'(https?://[^']+\.mp4[^']*)'",
+        r'var\s+source\s*=\s*["\']?(https?://[^"\']+)',
+    ]:
+        m = re.search(pattern, html)
+        if m and "test-videos" not in m.group(1) and "Big_Buck_Bunny" not in m.group(1):
+            return m.group(1)
+    # Try base64 encoded
+    m = re.search(r"atob\('([^']+)'\)", html)
+    if m:
+        try:
+            decoded = base64.b64decode(m.group(1)).decode("utf-8", errors="ignore")
+            if decoded.startswith("http") and "test-videos" not in decoded:
+                return decoded
+        except Exception:
+            pass
+
+    # Regex failed (VOE bot protection) → use Playwright headless browser
+    log.info(f"VOE: regex failed, trying Playwright for {url}")
+    return _extract_voe_playwright(url)
+
+def _extract_voe_playwright(url):
+    """Use headless Chromium to extract VOE stream URL (bypasses bot protection)."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        log.error("VOE: Playwright not installed - can't resolve VOE streams")
+        return None
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
+            page = browser.new_page()
+            stream_url = None
+
+            # Intercept network requests to catch the actual video URL
+            def handle_request(request):
+                nonlocal stream_url
+                req_url = request.url
+                if any(ext in req_url for ext in [".m3u8", ".mp4"]) and "test-videos" not in req_url:
+                    stream_url = req_url
+
+            page.on("request", handle_request)
+            page.goto(url, wait_until="domcontentloaded", timeout=15000)
+
+            # Wait a bit for JS to execute and video player to load
+            page.wait_for_timeout(3000)
+
+            # Also try extracting from page JS variables
+            if not stream_url:
+                try:
+                    stream_url = page.evaluate("""() => {
+                        // Check for common video player source patterns
+                        const video = document.querySelector('video source, video');
+                        if (video && video.src && !video.src.includes('test-videos')) return video.src;
+                        // Check jwplayer
+                        if (typeof jwplayer !== 'undefined') {
+                            const pl = jwplayer();
+                            if (pl && pl.getPlaylistItem) {
+                                const item = pl.getPlaylistItem();
+                                if (item && item.file) return item.file;
+                            }
+                        }
+                        return null;
+                    }""")
+                except Exception:
+                    pass
+
+            browser.close()
+
+            if stream_url:
+                log.info(f"VOE: Playwright resolved: {stream_url[:80]}...")
+            else:
+                log.warning(f"VOE: Playwright could not find stream URL for {url}")
+            return stream_url
+
+    except Exception as e:
+        log.error(f"VOE: Playwright extraction failed: {e}")
+        return None
+
+
     """Extract video URL from hoster page HTML. Returns URL string or None."""
     try:
-        # voe.sx
+        # voe.sx (and its rotating domains)
         if "voe" in hoster_url:
-            m = re.search(r"'(https?://[^']+\.m3u8[^']*)'", html)
-            if m:
-                return m.group(1)
-            m = re.search(r"'(https?://[^']+\.mp4[^']*)'", html)
-            if m:
-                return m.group(1)
-            m = re.search(r"atob\('([^']+)'\)", html)
-            if m:
-                import base64
-                decoded = base64.b64decode(m.group(1)).decode("utf-8", errors="ignore")
-                if decoded.startswith("http"):
-                    return decoded
+            return _extract_voe(hoster_url, html)
+        # Check if this is a VOE JS-redirect page (VOE uses rotating domains)
+        js_redirect = re.search(r"window\.location\.href\s*=\s*'(https?://[^']+)'", html)
+        if js_redirect and "/e/" in js_redirect.group(1):
+            redirect_url = js_redirect.group(1)
+            log.info(f"VOE JS-redirect detected: {redirect_url}")
+            return _extract_voe_playwright(redirect_url)
         
         # vidoza
         if "vidoza" in hoster_url:
