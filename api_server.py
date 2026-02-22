@@ -834,12 +834,13 @@ def full_sync():
 
 
 def incremental_sync():
-    """Incremental sync:
-    1. Fetch /animes-alphabet → find new slugs not yet in DB.
-    2. New slugs → fully scrape (detail + all seasons/episodes).
-    3. Existing anime: fetch detail page (with faster delay), compare season_count.
+    """Incremental sync (used by Dashboard button + Nightly):
+    1. Fetch /animes-alphabet → find new anime not yet in DB → fully scrape them.
+    2. ALL existing anime: fetch detail page, compare season_count.
        - New seasons → scrape those.
        - Same season count → re-scrape latest season to check for new episodes.
+       - Also checks for new films.
+    No time filter - always checks everything for changes.
     Returns dict: {new_anime, updated_anime, errors}.
     """
     results = {"mode": "incremental", "new_anime": 0, "updated_anime": 0, "errors": 0}
@@ -911,20 +912,14 @@ def incremental_sync():
             log.error(f"Incremental: failed to scrape new anime {slug}: {e}")
             results["errors"] += 1
 
-    # Step 4: Check existing anime for new episodes
-    # Only check anime not re-checked in the last 23 hours to avoid redundant work
+    # Step 4: Check ALL existing anime for new episodes/seasons
     conn = get_conn()
     try:
         to_check = conn.execute("""
             SELECT a.slug, a.season_count, a.has_movies
             FROM anime a
             WHERE a.last_scraped IS NOT NULL
-            AND (
-                a.last_scraped < datetime('now', '-23 hours')
-                OR a.season_count = 0
-            )
-            ORDER BY a.last_scraped ASC
-            LIMIT 500
+            ORDER BY a.slug ASC
         """).fetchall()
     finally:
         conn.close()
@@ -1000,6 +995,24 @@ def incremental_sync():
                 if live_ep_count > old_ep_count:
                     anime_updated = True
 
+            # Check for new films
+            has_movies_link = soup.select_one('a[href*="/filme"]')
+            if has_movies_link:
+                old_has_movies = row["has_movies"] if row["has_movies"] else 0
+                conn = get_conn()
+                try:
+                    conn.execute("UPDATE anime SET has_movies=1 WHERE slug=?", (slug,))
+                    conn.commit()
+                    old_film_count = conn.execute(
+                        "SELECT COUNT(*) as cnt FROM episode WHERE anime_slug=? AND season_number=0",
+                        (slug,)
+                    ).fetchone()["cnt"]
+                finally:
+                    conn.close()
+                new_film_count = scrape_film_episodes(slug)
+                if new_film_count and new_film_count > old_film_count:
+                    anime_updated = True
+
             if anime_updated:
                 results["updated_anime"] += 1
 
@@ -1014,16 +1027,12 @@ def incremental_sync():
 # --- Background sync ---
 
 def bg_sync_loop():
+    """Background loop: only syncs the catalog (anime list from alphabet page).
+    Detail scraping only runs on first install or manual 'Batch Scrape' button."""
     time.sleep(5)
     while True:
         try:
             sync_catalog()
-        except Exception:
-            pass
-
-        # After catalog sync, scrape details in batches
-        try:
-            sync_details_batch()
         except Exception:
             pass
 
