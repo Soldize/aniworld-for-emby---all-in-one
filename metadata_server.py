@@ -766,8 +766,8 @@ def sync_metadata():
     conn = get_db()
 
     existing = {}
-    for row in conn.execute("SELECT slug, last_updated FROM metadata"):
-        existing[row["slug"]] = row["last_updated"]
+    for row in conn.execute("SELECT slug, last_updated, status FROM metadata"):
+        existing[row["slug"]] = {"last_updated": row["last_updated"], "status": row["status"] if "status" in row.keys() else None}
 
     now = datetime.now(timezone.utc)
     fetched = 0
@@ -779,13 +779,14 @@ def sync_metadata():
         slug = anime["slug"]
         title = anime["title"]
 
-        # Skip if recently updated
-        if slug in existing and existing[slug]:
+        # Skip if recently updated AND status is already known
+        if slug in existing and existing[slug]["last_updated"]:
+            has_status = existing[slug]["status"] is not None
             try:
-                last = datetime.fromisoformat(existing[slug])
+                last = datetime.fromisoformat(existing[slug]["last_updated"])
                 if last.tzinfo is None:
                     last = last.replace(tzinfo=timezone.utc)
-                if (now - last).days < REFRESH_DAYS:
+                if (now - last).days < REFRESH_DAYS and has_status:
                     skipped += 1
                     _meta_sync_progress["done"] = fetched + skipped + errors
                     _meta_sync_progress["skipped"] = skipped
