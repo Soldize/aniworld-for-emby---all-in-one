@@ -139,4 +139,18 @@ sudo ./install.sh update
 | Daten (DB, Cover) | `/opt/aniworld/data/` |
 | Media (.strm/.nfo) | `/media/aniworld/` |
 | Config | `/etc/aniworld/config.ini` |
+
+## Konfiguration
+
+Die Config (`/etc/aniworld/config.ini`) enthält folgende Sektionen:
+
+| Sektion | Beschreibung |
+|---------|-------------|
+| `[api]` | API Server Port, DB-Pfad |
+| `[metadata]` | Metadata Server Port, DB-Pfad, Covers |
+| `[anidb]` | AniDB Client Name + Version (optional, für Episodentitel) |
+| `[proxy]` | Proxy/Dashboard Port |
+| `[sync]` | Media-Pfad für .strm/.nfo |
+| `[preferences]` | Sprache, Hoster-Präferenz |
+| `[emby]` | Emby URL + API-Key für Auto Library Scan (optional) |
 | Python venv | `/opt/aniworld/venv/` |

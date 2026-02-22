@@ -119,6 +119,7 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] recent_changes Tabelle trackt alle Änderungen
 - [x] Backup/Restore: Dashboard (ZIP Download/Upload) + Installer (Menüpunkte 7+8)
 - [x] Hoster Health-Monitoring: Erfolgsrate pro Hoster im Dashboard (✅/⚠️/❌, Auto-Refresh)
+- [x] AniDB Client über Config konfigurierbar ([anidb] Section, Installer fragt bei Erstinstall)
 
 ### 🔨 Offen / Geplant
 
