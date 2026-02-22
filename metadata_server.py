@@ -100,9 +100,13 @@ def init_db():
         )
     """)
 
-    # Add anidb_id column to existing tables (safe: no-op if already exists)
+    # Add columns to existing tables (safe: no-op if already exists)
     try:
         conn.execute("ALTER TABLE metadata ADD COLUMN anidb_id INTEGER")
+    except Exception:
+        pass  # already exists
+    try:
+        conn.execute("ALTER TABLE metadata ADD COLUMN status TEXT")
     except Exception:
         pass  # already exists
 
@@ -144,6 +148,7 @@ query ($search: String) {
       genres
       tags { name rank }
       meanScore
+      status
       coverImage { extraLarge large medium }
       bannerImage
     }
@@ -299,8 +304,8 @@ def fetch_and_store_metadata(slug: str, title: str, conn: sqlite3.Connection) ->
             INSERT OR REPLACE INTO metadata
             (slug, anilist_id, mal_id, title_romaji, title_english, title_native,
              description_en, description_de, genres, tags, rating,
-             cover_url_original, cover_cached, banner_url, last_updated)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             cover_url_original, cover_cached, banner_url, status, last_updated)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             slug,
             al.get("id"),
@@ -316,6 +321,7 @@ def fetch_and_store_metadata(slug: str, title: str, conn: sqlite3.Connection) ->
             cover_url,
             1 if cover_cached else 0,
             al.get("bannerImage"),
+            al.get("status"),  # FINISHED, RELEASING, NOT_YET_RELEASED, etc.
             datetime.now(timezone.utc).isoformat(),
         ))
         conn.commit()
@@ -332,12 +338,20 @@ def fetch_and_store_metadata(slug: str, title: str, conn: sqlite3.Connection) ->
 
         cover_cached = download_cover(slug, cover_url)
 
+        # Map Jikan status to AniList-style status
+        jikan_status_map = {
+            "Currently Airing": "RELEASING",
+            "Finished Airing": "FINISHED",
+            "Not yet aired": "NOT_YET_RELEASED",
+        }
+        jikan_status = jikan_status_map.get(jk.get("status"), jk.get("status"))
+
         conn.execute("""
             INSERT OR REPLACE INTO metadata
             (slug, anilist_id, mal_id, title_romaji, title_english, title_native,
              description_en, description_de, genres, tags, rating,
-             cover_url_original, cover_cached, banner_url, last_updated)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             cover_url_original, cover_cached, banner_url, status, last_updated)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             slug,
             None,
@@ -353,6 +367,7 @@ def fetch_and_store_metadata(slug: str, title: str, conn: sqlite3.Connection) ->
             cover_url,
             1 if cover_cached else 0,
             None,
+            jikan_status,
             datetime.now(timezone.utc).isoformat(),
         ))
         conn.commit()
@@ -885,7 +900,17 @@ def get_metadata(slug):
         "cover_url":          cover_url,
         "cover_url_original": row["cover_url_original"],
         "banner_url":         row["banner_url"],
+        "status":             row["status"] if "status" in row.keys() else None,
     })
+
+
+@app.route("/api/status/bulk")
+def get_bulk_status():
+    """Returns {slug: status} for all anime with known status. Used by API-Server for incremental sync."""
+    conn = get_db()
+    rows = conn.execute("SELECT slug, status FROM metadata WHERE status IS NOT NULL").fetchall()
+    conn.close()
+    return jsonify({r["slug"]: r["status"] for r in rows})
 
 
 @app.route("/metadata/<slug>/episodes")

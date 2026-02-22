@@ -25,6 +25,8 @@ _cfg = _cp.ConfigParser()
 _cfg.read(os.environ.get("ANIWORLD_CONFIG", "/etc/aniworld/config.ini"))
 
 DB_PATH = _cfg.get("api", "db_path", fallback="/opt/aniworld/data/aniworld.db")
+METADATA_PORT = _cfg.get("metadata", "port", fallback="5090")
+METADATA_BASE = f"http://127.0.0.1:{METADATA_PORT}"
 BASE_URL = "https://aniworld.to"
 SYNC_INTERVAL = 300  # 5 minutes between background sync batches
 DETAIL_SCRAPE_DELAY = 3  # seconds between requests to aniworld.to (catalog scraping)
@@ -912,10 +914,20 @@ def incremental_sync():
             log.error(f"Incremental: failed to scrape new anime {slug}: {e}")
             results["errors"] += 1
 
-    # Step 4: Check ALL existing anime for new episodes/seasons
+    # Step 4: Check existing anime for new episodes/seasons
+    # Only check RELEASING / unknown status anime (skip FINISHED)
+    status_map = {}
+    try:
+        status_resp = requests.get(f"{METADATA_BASE}/api/status/bulk", timeout=10)
+        if status_resp.ok:
+            status_map = status_resp.json()
+            log.info(f"Incremental: got status for {len(status_map)} anime from metadata server")
+    except Exception as e:
+        log.warning(f"Incremental: could not fetch status from metadata server: {e} - checking all anime")
+
     conn = get_conn()
     try:
-        to_check = conn.execute("""
+        all_anime = conn.execute("""
             SELECT a.slug, a.season_count, a.has_movies
             FROM anime a
             WHERE a.last_scraped IS NOT NULL
@@ -924,8 +936,19 @@ def incremental_sync():
     finally:
         conn.close()
 
+    # Filter: only check anime that are NOT finished
+    to_check = []
+    skipped_finished = 0
+    for row in all_anime:
+        status = status_map.get(row["slug"])
+        if status == "FINISHED":
+            skipped_finished += 1
+        else:
+            # RELEASING, NOT_YET_RELEASED, None/unknown → check
+            to_check.append(row)
+
     total_to_check = len(to_check)
-    log.info(f"Incremental: checking {total_to_check} existing anime for updates")
+    log.info(f"Incremental: checking {total_to_check} anime for updates (skipped {skipped_finished} finished)")
     checked = 0
 
     for row in to_check:
