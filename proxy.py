@@ -596,6 +596,24 @@ async def incremental_sync():
         raise HTTPException(status_code=502, detail="API Server nicht erreichbar")
 
 
+@app.get("/api/dashboard/incremental-sync/status")
+async def incremental_sync_status():
+    """Status des Incremental Sync vom API-Server."""
+    try:
+        r = requests.get(f"{API_BASE}/api/sync/incremental/status", timeout=5)
+        return r.json() if r.ok else {"running": False, "result": None}
+    except Exception:
+        return {"running": False, "result": None}
+
+@app.get("/api/dashboard/full-sync/status")
+async def full_sync_status():
+    """Status des Full Sync vom API-Server."""
+    try:
+        r = requests.get(f"{API_BASE}/api/sync/full/status", timeout=5)
+        return r.json() if r.ok else {"running": False, "result": None}
+    except Exception:
+        return {"running": False, "result": None}
+
 @app.post("/api/dashboard/detail-scrape/batch")
 async def detail_scrape_batch():
     """Batch Detail-Scrape über API-Server starten."""
@@ -1202,17 +1220,49 @@ async function metadataSync() {
 
 async function incrementalSync() {
   const btn = document.getElementById('btn-incremental');
+  const resultEl = document.getElementById('incremental-result');
   btn.disabled = true;
-  document.getElementById('incremental-result').textContent = 'Scrape läuft...';
+  resultEl.textContent = 'Scrape läuft...';
   try {
     const r = await fetch(API + '/api/dashboard/incremental-sync', {method:'POST'});
-    if (!r.ok) { const e = await r.json(); toast(e.detail, false); return; }
-    toast('Änderungen werden gescraped (ca. 5-15 Min.)');
-    document.getElementById('incremental-result').innerHTML =
-      '✅ Incremental Sync gestartet - neue Serien + Episoden werden geprüft (ca. 5-15 Min.)';
-    fetchStatus();
-  } catch(e) { toast('Fehler: ' + e, false); }
-  finally { setTimeout(() => btn.disabled = false, 5000); }
+    if (!r.ok) {
+      if (r.status === 409) { toast('Incremental Sync läuft bereits!', false); return; }
+      const e = await r.json(); toast(e.detail, false); return;
+    }
+    toast('Änderungen werden gescraped...');
+    pollSyncStatus('incremental', resultEl, btn);
+  } catch(e) { toast('Fehler: ' + e, false); btn.disabled = false; }
+}
+
+async function pollSyncStatus(mode, resultEl, btn) {
+  const endpoint = mode === 'incremental' ? '/api/dashboard/incremental-sync/status' : '/api/dashboard/full-sync/status';
+  const poll = setInterval(async () => {
+    try {
+      const r = await fetch(API + endpoint);
+      const data = await r.json();
+      if (data.running) {
+        resultEl.textContent = '⏳ Scrape läuft...';
+        return;
+      }
+      clearInterval(poll);
+      btn.disabled = false;
+      if (!data.result) { resultEl.textContent = ''; return; }
+      const res = data.result;
+      if (res.error) {
+        resultEl.innerHTML = '❌ Fehler: ' + res.error;
+        toast('Sync fehlgeschlagen!', false);
+      } else {
+        const parts = [];
+        if (res.new_anime !== undefined) parts.push(res.new_anime + ' neue Anime');
+        if (res.updated_anime !== undefined) parts.push(res.updated_anime + ' aktualisiert');
+        if (res.errors !== undefined && res.errors > 0) parts.push(res.errors + ' Fehler');
+        const hasErrors = res.errors > 0;
+        const icon = hasErrors ? '⚠️' : '✅';
+        resultEl.innerHTML = icon + ' Fertig: ' + parts.join(', ');
+        toast(hasErrors ? 'Sync fertig (mit Fehlern)' : 'Sync erfolgreich!', !hasErrors);
+      }
+    } catch(e) { /* keep polling */ }
+  }, 5000);
 }
 
 async function detailBatch() {

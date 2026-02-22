@@ -1518,34 +1518,72 @@ def resolve_streams():
         log.error(f"Stream resolution failed for {slug} S{season}E{episode}: {e}")
         return jsonify({"error": str(e)}), 500
 
+_full_sync_status = {"running": False, "result": None, "started_at": None, "finished_at": None}
+
 @app.route("/api/sync/full", methods=["POST"])
 def trigger_full_sync():
     """Trigger a full scrape of all episode lists. Runs in background. ~2-3h."""
+    if _full_sync_status["running"]:
+        return jsonify({"status": "already_running", "mode": "full"}), 409
+
     def _run():
+        _full_sync_status["running"] = True
+        _full_sync_status["started_at"] = datetime.utcnow().isoformat()
+        _full_sync_status["result"] = None
+        _full_sync_status["finished_at"] = None
         log.info("Full sync started (triggered via API)")
         try:
-            full_sync()
+            result = full_sync()
+            _full_sync_status["result"] = result if result else {"mode": "full", "status": "done"}
         except Exception as e:
             log.error(f"Full sync failed: {e}")
+            _full_sync_status["result"] = {"mode": "full", "error": str(e)}
+        finally:
+            _full_sync_status["running"] = False
+            _full_sync_status["finished_at"] = datetime.utcnow().isoformat()
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
     return jsonify({"status": "started", "mode": "full"})
 
+@app.route("/api/sync/full/status")
+def get_full_sync_status():
+    """Get current full sync status + result."""
+    return jsonify(_full_sync_status)
+
+
+_incremental_sync_status = {"running": False, "result": None, "started_at": None, "finished_at": None}
 
 @app.route("/api/sync/incremental", methods=["POST"])
 def trigger_incremental_sync():
-    """Trigger incremental sync: new anime + episode count checks. Runs in background. ~5-15min."""
+    """Trigger incremental sync: new anime + episode count checks. Runs in background."""
+    if _incremental_sync_status["running"]:
+        return jsonify({"status": "already_running", "mode": "incremental"}), 409
+
     def _run():
+        _incremental_sync_status["running"] = True
+        _incremental_sync_status["started_at"] = datetime.utcnow().isoformat()
+        _incremental_sync_status["result"] = None
+        _incremental_sync_status["finished_at"] = None
         log.info("Incremental sync started (triggered via API)")
         try:
-            incremental_sync()
+            result = incremental_sync()
+            _incremental_sync_status["result"] = result
         except Exception as e:
             log.error(f"Incremental sync failed: {e}")
+            _incremental_sync_status["result"] = {"mode": "incremental", "error": str(e)}
+        finally:
+            _incremental_sync_status["running"] = False
+            _incremental_sync_status["finished_at"] = datetime.utcnow().isoformat()
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
     return jsonify({"status": "started", "mode": "incremental"})
+
+@app.route("/api/sync/incremental/status")
+def get_incremental_sync_status():
+    """Get current incremental sync status + result."""
+    return jsonify(_incremental_sync_status)
 
 
 # Backward-compat alias: old plugin versions call /api/scrape/episodes
