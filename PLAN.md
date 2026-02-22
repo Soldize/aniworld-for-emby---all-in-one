@@ -117,6 +117,7 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] Dashboard: "🆕 Neu" Tab (zuletzt hinzugefügte Anime/Episoden/Staffeln/Filme, filterbar)
 - [x] Auto Emby Library Scan nach Incremental Sync + Sync-Service (wenn [emby] Config vorhanden)
 - [x] recent_changes Tabelle trackt alle Änderungen
+- [x] Backup/Restore: Dashboard (ZIP Download/Upload) + Installer (Menüpunkte 7+8)
 
 ### 🔨 Offen / Geplant
 

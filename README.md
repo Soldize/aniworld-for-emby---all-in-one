@@ -39,8 +39,10 @@ Der Installer bietet ein interaktives Menü:
 4. **Services neustarten**
 5. **Status** anzeigen
 6. **Passwort zurücksetzen**
-7. **Deinstallieren**
-8. **Anleitung** - Schritt-für-Schritt Ersteinrichtung
+7. **Backup erstellen** - DB + Config als ZIP
+8. **Restore** - Backup-ZIP wiederherstellen
+9. **Deinstallieren**
+10. **Anleitung** - Schritt-für-Schritt Ersteinrichtung
 
 Nach der Installation prüft das Script automatisch ob alle Services laufen.
 
@@ -53,6 +55,7 @@ Nach der Installation erreichbar unter: **http://localhost:5081/**
 - **🔍 Katalog:** Anime-Suche, A-Z Navigation, Detail-Ansicht mit Cover + Staffeln + Episoden
 - **📋 Logs:** Live-Logs von API/Metadata/Proxy, Filter nach Level, Auto-Refresh, farbcodiert
 - **🔒 Auth:** Login erforderlich, Passwort im Dashboard änderbar, /play/* bleibt offen für Emby
+- **💾 Backup/Restore:** DB + Config als ZIP exportieren/importieren (Dashboard + Installer)
 - Buttons werden automatisch gesperrt solange ein Prozess läuft
 - Responsive (Desktop, Tablet, Mobile)
 
