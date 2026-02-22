@@ -1745,6 +1745,37 @@ def trigger_episode_scrape():
     return trigger_full_sync()
 
 
+@app.route("/api/hoster-health")
+def get_hoster_health():
+    """Get hoster health stats (success rate, total, failed, last seen)."""
+    conn = get_conn()
+    try:
+        rows = conn.execute("""
+            SELECT
+                hoster,
+                COUNT(*) as total,
+                COUNT(CASE WHEN stream_url IS NOT NULL AND stream_url != '' THEN 1 END) as resolved,
+                COUNT(CASE WHEN failed_at IS NOT NULL AND failed_at > datetime('now', '-6 hours') THEN 1 END) as recent_failures,
+                MAX(stream_cached_at) as last_success,
+                MAX(failed_at) as last_failure
+            FROM stream_cache
+            GROUP BY hoster
+            ORDER BY total DESC
+        """).fetchall()
+    finally:
+        conn.close()
+
+    return jsonify([{
+        "name": r["hoster"],
+        "total": r["total"],
+        "resolved": r["resolved"],
+        "recentFailures": r["recent_failures"],
+        "successRate": round((r["resolved"] / r["total"]) * 100, 1) if r["total"] > 0 else 0,
+        "lastSuccess": r["last_success"],
+        "lastFailure": r["last_failure"],
+    } for r in rows])
+
+
 @app.route("/api/changes")
 def get_recent_changes():
     """Get recent changes (new anime, new episodes, etc.). Query: ?days=7&limit=100"""

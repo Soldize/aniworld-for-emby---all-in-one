@@ -696,6 +696,15 @@ async def restore_backup(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/dashboard/hoster-health")
+async def hoster_health(request: Request):
+    """Hoster Health Stats vom API-Server."""
+    try:
+        r = requests.get(f"{API_BASE}/api/hoster-health", timeout=10)
+        return JSONResponse(r.json() if r.ok else [])
+    except Exception:
+        return JSONResponse([])
+
 @app.get("/api/dashboard/recent-changes")
 async def recent_changes(request: Request, days: int = 7, limit: int = 100):
     """Letzte Änderungen vom API-Server."""
@@ -1018,6 +1027,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div id="detail-result" style="margin-top:10px; font-size:0.85rem; color:var(--muted);"></div>
 </div>
 
+<div class="section">
+  <h2>📡 Hoster Health</h2>
+  <div id="hoster-health" style="font-size:0.9rem;">
+    <span style="color:var(--muted)">Lade...</span>
+  </div>
+</div>
 
 </div><!-- /tab-dashboard -->
 
@@ -1765,6 +1780,37 @@ async function cronRunNow(jobId) {
   } catch(e) { toast('Fehler: ' + e, false); }
 }
 
+// === Hoster Health ===
+async function loadHosterHealth() {
+  const el = document.getElementById('hoster-health');
+  try {
+    const r = await fetch(API + '/api/dashboard/hoster-health');
+    const data = await r.json();
+    if (!data || data.length === 0) {
+      el.innerHTML = '<span style="color:var(--muted)">Keine Daten (noch kein Stream resolved)</span>';
+      return;
+    }
+    let html = '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px;">';
+    data.forEach(h => {
+      const rate = h.successRate;
+      let color = 'var(--green)';
+      let icon = '✅';
+      if (rate < 50) { color = 'var(--red)'; icon = '❌'; }
+      else if (rate < 80) { color = 'var(--yellow, #f0ad4e)'; icon = '⚠️'; }
+      const failures = h.recentFailures > 0 ? ' | <span style="color:var(--red)">' + h.recentFailures + ' Fehler (6h)</span>' : '';
+      html += '<div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px;">';
+      html += '<div style="font-weight:bold; margin-bottom:6px;">' + icon + ' ' + h.name + '</div>';
+      html += '<div style="font-size:1.2rem; color:' + color + '; font-weight:bold;">' + rate + '%</div>';
+      html += '<div style="font-size:0.8rem; color:var(--muted); margin-top:4px;">' + h.resolved + '/' + h.total + ' resolved' + failures + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<span style="color:var(--red)">Fehler: ' + e + '</span>';
+  }
+}
+
 // === Backup / Restore ===
 function downloadBackup() {
   document.getElementById('backup-status').textContent = '💾 Backup wird erstellt...';
@@ -1845,7 +1891,9 @@ async function loadRecentChanges() {
 // Init
 fetchStatus();
 renderPwSection();
+loadHosterHealth();
 setInterval(fetchStatus, 5000);
+setInterval(loadHosterHealth, 30000);
 </script>
 </body>
 </html>"""
