@@ -979,6 +979,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <!-- Status Cards -->
 <div class="grid" id="status-grid"></div>
 
+<div class="section">
+  <h2>📡 Hoster Health</h2>
+  <div id="hoster-health" style="font-size:0.9rem;">
+    <span style="color:var(--muted)">Lade...</span>
+  </div>
+</div>
+
 <!-- Aniworld Scrape -->
 <div class="section">
   <h2>Aniworld Scrape</h2>
@@ -1025,13 +1032,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <button class="btn btn-save" id="btn-detail-single" onclick="detailSingle()">🔍 Einzeln Scrapen</button>
   </div>
   <div id="detail-result" style="margin-top:10px; font-size:0.85rem; color:var(--muted);"></div>
-</div>
-
-<div class="section">
-  <h2>📡 Hoster Health</h2>
-  <div id="hoster-health" style="font-size:0.9rem;">
-    <span style="color:var(--muted)">Lade...</span>
-  </div>
 </div>
 
 </div><!-- /tab-dashboard -->
