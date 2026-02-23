@@ -653,14 +653,19 @@ def sync_anidb_episodes():
             no_aid += 1
             continue
 
-        # Skip if we already have episode data for this slug
+        # Skip FINISHED anime that already have episode data
+        # RELEASING/unknown anime always get re-checked for new episodes
         conn = get_db()
         existing_count = conn.execute(
             "SELECT COUNT(*) FROM episode_metadata WHERE slug=?", (slug,)
         ).fetchone()[0]
+        status_row = conn.execute(
+            "SELECT status FROM metadata WHERE slug=?", (slug,)
+        ).fetchone()
         conn.close()
+        anime_status = status_row["status"] if status_row and "status" in status_row.keys() else None
 
-        if existing_count > 0:
+        if existing_count > 0 and anime_status == "FINISHED":
             already_done += 1
             continue
 
@@ -780,13 +785,16 @@ def sync_metadata():
         title = anime["title"]
 
         # Skip if recently updated AND status is already known
+        # RELEASING anime: refresh after 1 day, FINISHED: after REFRESH_DAYS
         if slug in existing and existing[slug]["last_updated"]:
             has_status = existing[slug]["status"] is not None
+            is_releasing = existing[slug]["status"] in ("RELEASING", "NOT_YET_RELEASED", None)
+            max_age = 1 if is_releasing else REFRESH_DAYS
             try:
                 last = datetime.fromisoformat(existing[slug]["last_updated"])
                 if last.tzinfo is None:
                     last = last.replace(tzinfo=timezone.utc)
-                if (now - last).days < REFRESH_DAYS and has_status:
+                if (now - last).days < max_age and has_status:
                     skipped += 1
                     _meta_sync_progress["done"] = fetched + skipped + errors
                     _meta_sync_progress["skipped"] = skipped
