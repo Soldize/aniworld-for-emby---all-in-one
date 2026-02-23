@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import signal
 import subprocess
@@ -477,13 +478,32 @@ async def dashboard_status():
 
     # Sync
     if sync_process and sync_process.poll() is None:
-        services["sync"] = {"status": "running", "started": sync_start_time}
+        # Parse progress from log lines: [123/2361] Syncing: ...
+        sync_current, sync_total, sync_current_slug = 0, 0, ""
+        for line in reversed(sync_log[-50:]):
+            m = re.search(r'\[(\d+)/(\d+)\]\s+Syncing:\s+(.+)', line)
+            if m:
+                sync_current = int(m.group(1))
+                sync_total = int(m.group(2))
+                sync_current_slug = m.group(3).strip()
+                break
+        services["sync"] = {
+            "status": "running", "started": sync_start_time,
+            "current": sync_current, "total": sync_total, "currentSlug": sync_current_slug
+        }
     elif sync_exit_code is not None:
+        # Parse result from log: Sync complete: 2361 anime, 468 new episodes, 183.4s
+        sync_result = ""
+        for line in reversed(sync_log[-20:]):
+            if "Sync complete" in line:
+                sync_result = line.split("] ")[-1] if "] " in line else line
+                break
         services["sync"] = {
             "status": "finished",
             "exit_code": sync_exit_code,
             "started": sync_start_time,
-            "ended": sync_end_time
+            "ended": sync_end_time,
+            "result": sync_result
         }
     else:
         services["sync"] = {"status": "idle"}
@@ -1033,6 +1053,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <!-- Sync Control -->
 <div class="section">
   <h2>STRM-Sync</h2>
+  <div id="sync-progress" style="margin-bottom:12px; padding:12px 16px; background:var(--surface); border:1px solid var(--border); border-radius:8px; font-size:0.9rem;"></div>
   <div class="btn-group">
     <button class="btn btn-start" id="btn-sync-start" onclick="syncStart()">▶ Starten</button>
     <button class="btn btn-stop" id="btn-sync-stop" onclick="syncStop()" disabled>⬛ Stoppen</button>
@@ -1234,6 +1255,33 @@ function renderStatus(data) {
     clearInterval(logInterval);
     logInterval = null;
     fetchLog(); // letztes Update
+  }
+
+  // Sync Progress
+  const syncBox = document.getElementById('sync-progress');
+  if (data.sync) {
+    const s = data.sync;
+    if (s.status === 'running' && s.total > 0) {
+      const pct = Math.round((s.current / s.total) * 100);
+      syncBox.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span>🔄 <strong>STRM-Sync:</strong> Läuft...</span>
+          <span style="color:var(--accent); font-weight:600;">${pct}%</span>
+        </div>
+        <div style="background:var(--border); border-radius:4px; height:8px; overflow:hidden;">
+          <div style="background:var(--accent); height:100%; width:${pct}%; transition:width 0.5s;"></div>
+        </div>
+        <div style="margin-top:6px; font-size:0.8rem; color:var(--muted);">
+          ${s.current} / ${s.total} Anime — ${s.currentSlug || ''}
+        </div>`;
+    } else if (s.status === 'running') {
+      syncBox.innerHTML = '<span>🔄 <strong>STRM-Sync:</strong> Startet...</span>';
+    } else if (s.status === 'finished') {
+      const icon = s.exit_code === 0 ? '✅' : '❌';
+      syncBox.innerHTML = `<span>${icon} <strong>STRM-Sync:</strong> ${s.result || (s.exit_code === 0 ? 'Abgeschlossen' : 'Fehler (Exit ' + s.exit_code + ')')}</span>`;
+    } else {
+      syncBox.innerHTML = '<span style="color:var(--muted);">⏸️ <strong>STRM-Sync:</strong> Bereit</span>';
+    }
   }
 
   // Scrape Status
