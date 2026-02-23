@@ -818,7 +818,7 @@ async def get_service_logs(service: str, request: Request, lines: int = 100, lev
     if not unit:
         raise HTTPException(status_code=400, detail=f"Unbekannter Service: {service}")
     try:
-        cmd = ["journalctl", "-u", unit, f"-n{lines}", "--no-pager", "-o", "short-iso"]
+        cmd = ["sudo", "journalctl", "-u", unit, f"-n{lines}", "--no-pager", "-o", "short-iso"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
         log_lines = result.stdout.strip().split("\n") if result.stdout.strip() else []
         if level:
