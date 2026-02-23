@@ -1450,13 +1450,15 @@ def anime_list():
 
 @app.route("/api/anime/<slug>")
 def anime_detail(slug):
+    """?cached=1 skips freshness check (for sync)."""
     db = get_db()
     row = db.execute("SELECT * FROM anime WHERE slug=?", (slug,)).fetchone()
     if not row:
         return jsonify({"error": "not found"}), 404
 
     # On-demand detail scrape if stale or never scraped
-    if _needs_detail_scrape(row["last_scraped"]):
+    cached_only = request.args.get("cached") == "1"
+    if not cached_only and _needs_detail_scrape(row["last_scraped"]):
         if row["last_scraped"] is None:
             # Never scraped: block once to get initial data
             try:
@@ -1530,7 +1532,8 @@ def trigger_detail_sync():
 
 @app.route("/api/anime/<slug>/season/<int:season_num>/episodes")
 def get_season_episodes(slug, season_num):
-    """Get episode list for a specific season. Scrapes on-demand if stale or missing."""
+    """Get episode list for a specific season. Scrapes on-demand if stale or missing.
+    ?cached=1 skips freshness check (for sync - just return DB data)."""
     db = get_db()
     
     # Check if episodes exist and are fresh (< 24h old)
@@ -1541,21 +1544,23 @@ def get_season_episodes(slug, season_num):
         ORDER BY episode_number
     """, (slug, season_num)).fetchall()
     
+    cached_only = request.args.get("cached") == "1"
     needs_scrape = False
-    if not rows:
-        needs_scrape = True
-    else:
-        # Check staleness
-        last_scraped = rows[0]["last_scraped"] if rows else None
-        if last_scraped:
-            try:
-                scraped_dt = datetime.fromisoformat(last_scraped)
-                if datetime.utcnow() - scraped_dt > timedelta(hours=24):
-                    needs_scrape = True
-            except Exception:
-                needs_scrape = True
-        else:
+    if not cached_only:
+        if not rows:
             needs_scrape = True
+        else:
+            # Check staleness
+            last_scraped = rows[0]["last_scraped"] if rows else None
+            if last_scraped:
+                try:
+                    scraped_dt = datetime.fromisoformat(last_scraped)
+                    if datetime.utcnow() - scraped_dt > timedelta(hours=24):
+                        needs_scrape = True
+                except Exception:
+                    needs_scrape = True
+            else:
+                needs_scrape = True
     
     if needs_scrape:
         if not rows:
@@ -1603,7 +1608,8 @@ def get_season_episodes(slug, season_num):
 
 @app.route("/api/anime/<slug>/films/episodes")
 def get_film_episodes(slug):
-    """Get film/movie list (season_number=0). Scrapes on-demand if stale or missing."""
+    """Get film/movie list (season_number=0). Scrapes on-demand if stale or missing.
+    ?cached=1 skips freshness check (for sync)."""
     db = get_db()
     
     # Check if films exist and are fresh (< 24h old)
@@ -1614,20 +1620,22 @@ def get_film_episodes(slug):
         ORDER BY episode_number
     """, (slug,)).fetchall()
     
+    cached_only = request.args.get("cached") == "1"
     needs_scrape = False
-    if not rows:
-        needs_scrape = True
-    else:
-        last_scraped = rows[0]["last_scraped"] if rows else None
-        if last_scraped:
-            try:
-                scraped_dt = datetime.fromisoformat(last_scraped)
-                if datetime.utcnow() - scraped_dt > timedelta(hours=24):
-                    needs_scrape = True
-            except Exception:
-                needs_scrape = True
-        else:
+    if not cached_only:
+        if not rows:
             needs_scrape = True
+        else:
+            last_scraped = rows[0]["last_scraped"] if rows else None
+            if last_scraped:
+                try:
+                    scraped_dt = datetime.fromisoformat(last_scraped)
+                    if datetime.utcnow() - scraped_dt > timedelta(hours=24):
+                        needs_scrape = True
+                except Exception:
+                    needs_scrape = True
+            else:
+                needs_scrape = True
     
     if needs_scrape:
         if not rows:

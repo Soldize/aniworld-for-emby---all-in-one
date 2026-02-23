@@ -66,9 +66,9 @@ def fetch_all_anime():
 
 
 def fetch_anime_detail(slug):
-    """Fetch anime detail (seasons, hasMovies) from API server."""
+    """Fetch anime detail (seasons, hasMovies) from API server. Uses cached data only."""
     try:
-        resp = requests.get(f"{API_BASE}/api/anime/{slug}", timeout=30)
+        resp = requests.get(f"{API_BASE}/api/anime/{slug}?cached=1", timeout=30)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
@@ -79,7 +79,7 @@ def fetch_anime_detail(slug):
 def fetch_season_episodes(slug, season_num):
     """Fetch episodes for a specific season from API server."""
     try:
-        resp = requests.get(f"{API_BASE}/api/anime/{slug}/season/{season_num}/episodes", timeout=30)
+        resp = requests.get(f"{API_BASE}/api/anime/{slug}/season/{season_num}/episodes?cached=1", timeout=30)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
@@ -90,7 +90,7 @@ def fetch_season_episodes(slug, season_num):
 def fetch_film_episodes(slug):
     """Fetch film episodes from API server."""
     try:
-        resp = requests.get(f"{API_BASE}/api/anime/{slug}/films/episodes", timeout=30)
+        resp = requests.get(f"{API_BASE}/api/anime/{slug}/films/episodes?cached=1", timeout=30)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
