@@ -832,7 +832,7 @@ async def restart_service(service: str):
         raise HTTPException(status_code=400, detail=f"Unknown service: {service}")
     try:
         result = subprocess.run(
-            ["systemctl", "restart", unit],
+            ["sudo", "systemctl", "restart", unit],
             capture_output=True, text=True, timeout=15
         )
         if result.returncode == 0:

@@ -433,6 +433,10 @@ set_permissions() {
     chown -R emby:emby "$INSTALL_DIR" "$DATA_DIR" "$CONFIG_DIR" "$MEDIA_PATH"
     # venv muss auch für emby lesbar sein
     chmod -R o+rX "$INSTALL_DIR/venv" 2>/dev/null || true
+    # sudoers für Dashboard-Restart-Buttons (emby darf Services neustarten)
+    echo "emby ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart aniworld-api, /usr/bin/systemctl restart aniworld-metadata, /usr/bin/systemctl restart aniworld-proxy" \
+        > /etc/sudoers.d/aniworld-restart
+    chmod 440 /etc/sudoers.d/aniworld-restart
     echo -e "${GREEN}✅ Berechtigungen gesetzt${NC}"
 }
 
