@@ -139,14 +139,15 @@ install_playwright() {
     # Playwright braucht einige System-Deps für Chromium
     apt-get install -y -qq libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
         libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
-        libasound2t64 libxshmfence1 > /dev/null 2>&1 || \
+        libxfixes3 libxcursor1 libxi6 libxtst6 libx11-xcb1 libxcb-dri3-0 libxss1 \
+        libcairo2 libasound2t64 libxshmfence1 > /dev/null 2>&1 || \
     apt-get install -y -qq libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
         libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
-        libasound2 libxshmfence1 > /dev/null 2>&1 || true
-    # Chromium installieren (nur wenn noch nicht vorhanden)
-    if [ ! -d "$INSTALL_DIR/venv/lib/python3"*/site-packages/playwright/.local-browsers ]; then
+        libxfixes3 libxcursor1 libxi6 libxtst6 libx11-xcb1 libxcb-dri3-0 libxss1 \
+        libcairo2 libasound2 libxshmfence1 > /dev/null 2>&1 || true
+    # Chromium installieren als emby User (Service läuft als emby!)
+    sudo -u emby "$INSTALL_DIR/venv/bin/playwright" install chromium 2>/dev/null || \
         "$INSTALL_DIR/venv/bin/playwright" install chromium 2>/dev/null
-    fi
     echo -e "${GREEN}✅ Playwright Chromium installiert${NC}"
 }
 
