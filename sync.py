@@ -367,6 +367,45 @@ def _sync_one(args):
     return slug, new_eps
 
 
+def run_incremental_scrape():
+    """Run incremental scrape on API server before sync to ensure cache is fresh."""
+    log.info("Triggering incremental scrape to refresh cache...")
+    try:
+        resp = requests.post(f"{API_BASE}/api/sync/incremental", timeout=10)
+        if resp.status_code == 409:
+            log.info("Incremental scrape already running, waiting for it...")
+        elif not resp.ok:
+            log.warning(f"Failed to trigger incremental scrape: HTTP {resp.status_code}")
+            return
+    except Exception as e:
+        log.warning(f"Failed to trigger incremental scrape: {e}")
+        return
+
+    # Wait for completion (max 15 minutes)
+    max_wait = 900
+    poll_interval = 5
+    waited = 0
+    while waited < max_wait:
+        time.sleep(poll_interval)
+        waited += poll_interval
+        try:
+            status = requests.get(f"{API_BASE}/api/sync/incremental/status", timeout=10).json()
+            if not status.get("running", False):
+                result = status.get("result", {})
+                new_anime = result.get("new_anime", 0)
+                updated = result.get("updated_anime", 0)
+                log.info(f"Incremental scrape done: {new_anime} new anime, {updated} updated ({waited}s)")
+                return
+            # Log progress
+            progress = status.get("progress")
+            if progress:
+                log.info(f"  Incremental scrape: {progress.get('phase', '?')} - {progress.get('current', 0)}/{progress.get('total', 0)}")
+        except Exception:
+            pass
+
+    log.warning(f"Incremental scrape timed out after {max_wait}s, continuing with sync anyway")
+
+
 def main():
     log.info("=" * 60)
     log.info("AniWorld Sync starting")
@@ -375,6 +414,10 @@ def main():
     log.info("=" * 60)
 
     os.makedirs(MEDIA_PATH, exist_ok=True)
+
+    # Refresh cache before syncing
+    run_incremental_scrape()
+
     start_time = time.time()
 
     anime_list = fetch_all_anime()
