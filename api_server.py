@@ -608,14 +608,19 @@ def _log_change(slug, title, change_type, detail):
 def _extract_voe(url, html):
     """Extract video URL from VOE page. First tries regex, then falls back to Playwright."""
     # Try regex first (fast path - works when VOE doesn't block)
+    # Note: patterns must avoid matching JWPlayer tracking/analytics URLs that
+    # contain .m3u8 or .mp4 in their query parameters (e.g. jwplayer6/*.gif?...mu=...m3u8...)
     for pattern in [
-        r"'(https?://[^']+\.m3u8[^']*)'",
-        r"'(https?://[^']+\.mp4[^']*)'",
+        r"'(https?://[^']+\.m3u8(?:\?[^']*)?)'",
+        r"'(https?://[^']+\.mp4(?:\?[^']*)?)'",
         r'var\s+source\s*=\s*["\']?(https?://[^"\']+)',
     ]:
-        m = re.search(pattern, html)
-        if m and "test-videos" not in m.group(1) and "Big_Buck_Bunny" not in m.group(1):
-            return m.group(1)
+        for m in re.finditer(pattern, html):
+            candidate = m.group(1)
+            # Skip tracking pixels, analytics, and JWPlayer beacon URLs
+            if any(skip in candidate for skip in ["test-videos", "Big_Buck_Bunny", "/jwplayer", ".gif?"]):
+                continue
+            return candidate
     # Try base64 encoded
     m = re.search(r"atob\('([^']+)'\)", html)
     if m:
