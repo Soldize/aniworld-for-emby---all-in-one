@@ -46,6 +46,11 @@ PREF_HOSTER = config.get("preferences", "hoster", fallback="VOE")
 API_BASE = f"http://localhost:{API_PORT}"
 META_BASE = f"http://localhost:{META_PORT}"
 
+# SOCKS5 proxy support (e.g. Cloudflare WARP in proxy mode)
+WARP_PROXY = os.environ.get("WARP_PROXY", "").strip()
+if not WARP_PROXY:
+    WARP_PROXY = config.get("proxy", "warp_socks5", fallback="").strip()
+
 # HLS Proxy Settings
 STREAM_SESSION_TTL = 14400  # 4 hours - stream sessions expire after this
 SEGMENT_RETRY_COUNT = 3     # retry failed segment fetches
@@ -417,7 +422,7 @@ async def play(request: Request, slug: str, season: int, episode: int):
 
     # Fetch master m3u8 and rewrite URLs
     try:
-        async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT, follow_redirects=True, proxy=WARP_PROXY or None) as client:
             r = await client.get(stream_url)
             r.raise_for_status()
             rewritten = _rewrite_m3u8(r.text, base_url, session_id, proxy_base)
@@ -446,7 +451,7 @@ async def stream_proxy(request: Request, session_id: str, url: str):
     is_playlist = '.m3u8' in parsed.path
     proxy_base = f"{request.url.scheme}://{request.url.netloc}"
 
-    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT, follow_redirects=True, proxy=WARP_PROXY or None) as client:
         last_error = None
         for attempt in range(1, SEGMENT_RETRY_COUNT + 1):
             try:

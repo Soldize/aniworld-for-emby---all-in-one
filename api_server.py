@@ -44,6 +44,16 @@ _detail_sync_running = False
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("aniworld-api")
 
+# SOCKS5 proxy support (e.g. Cloudflare WARP in proxy mode)
+WARP_PROXY = os.environ.get("WARP_PROXY", "").strip()
+if not WARP_PROXY:
+    WARP_PROXY = _cfg.get("proxy", "warp_socks5", fallback="").strip()
+if WARP_PROXY:
+    logging.info(f"WARP SOCKS5 proxy enabled: {WARP_PROXY}")
+    _PROXIES = {"http": WARP_PROXY, "https": WARP_PROXY}
+else:
+    _PROXIES = None
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept-Language": "de-DE,de;q=0.9",
@@ -60,7 +70,7 @@ def _rate_limited_get(url, timeout=30, max_wait=10, delay=None):
         elapsed = time.time() - _last_request_time
         if elapsed < effective_delay:
             time.sleep(effective_delay - elapsed)
-        resp = requests.get(url, headers=HEADERS, timeout=timeout)
+        resp = requests.get(url, headers=HEADERS, timeout=timeout, proxies=_PROXIES)
         _last_request_time = time.time()
         return resp
     finally:
@@ -645,7 +655,11 @@ def _extract_voe_playwright(url):
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
+            launch_args = ["--no-sandbox", "--disable-gpu"]
+            proxy_settings = None
+            if WARP_PROXY:
+                proxy_settings = {"server": WARP_PROXY}
+            browser = p.chromium.launch(headless=True, args=launch_args, proxy=proxy_settings)
             page = browser.new_page()
             stream_url = None
 
