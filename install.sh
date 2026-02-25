@@ -90,8 +90,8 @@ status_check() {
     # WARP Status
     if command -v warp-cli &>/dev/null; then
         local warp_st
-        warp_st=$(warp-cli status 2>&1 | head -1)
-        if echo "$warp_st" | grep -qi "connected"; then
+        warp_st=$(warp-cli status 2>&1)
+        if echo "$warp_st" | grep -qi "Status update: Connected"; then
             echo -e "  ${GREEN}✅ WARP Proxy${NC} ${CYAN}:40000${NC}"
         else
             echo -e "  ${YELLOW}⚠️  WARP Proxy (nicht verbunden)${NC}"
@@ -385,8 +385,8 @@ check_warp_status() {
         return
     fi
     local status
-    status=$(warp-cli status 2>&1 | head -1)
-    if echo "$status" | grep -qi "connected"; then
+    status=$(warp-cli status 2>&1)
+    if echo "$status" | grep -qi "Status update: Connected"; then
         echo "connected"
     else
         echo "disconnected"
@@ -491,8 +491,8 @@ _connect_warp() {
     local tries=0
     while [ $tries -lt 30 ]; do
         local status
-        status=$(warp-cli status 2>&1 | head -1)
-        if echo "$status" | grep -qi "^Status update: Connected"; then
+        status=$(warp-cli status 2>&1)
+        if echo "$status" | grep -qi "Status update: Connected"; then
             break
         fi
         sleep 1
