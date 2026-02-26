@@ -199,6 +199,14 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] Playwright/Chromium war nur für root installiert, nicht für User `emby` (Service läuft als emby)
 - [x] stream_cache failed_at Marks gecleert die sich durch den Bug angesammelt hatten
 
+#### AniDB Deutsche Seriennamen ✅
+- [x] Deutscher Titel aus AniDB XML extrahiert (`<title xml:lang="de">`)
+- [x] In metadata DB als `title_de` gespeichert
+- [x] `/metadata/{slug}` API gibt `title_de` zurück
+- [x] AniDB Requests über WARP Proxy
+- [x] ANIDB_DELAY 8s (Datacenter-safe)
+- [x] Ban-Erkennung: Sync bricht sofort ab statt endlos zu loopen
+
 ### 🔨 Offen
 - [ ] Filemoon: Playwright-Fallback einbauen (SPA, Regex-Extraktion funktioniert nicht)
 - [ ] Vidmoly über WARP testen (Datacenter-IP Blocking)
