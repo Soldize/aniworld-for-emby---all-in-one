@@ -551,6 +551,17 @@ def fetch_anidb_anime(anidb_id: int) -> dict | None:
             log.warning("AniDB error for aid=%s: %s", anidb_id, err_text)
         return None
 
+    # ── German anime title ─────────────────────────────────────────────────
+    XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+    title_de = None
+    titles_el = root.find("titles")
+    if titles_el is not None:
+        for title_el in titles_el.findall("title"):
+            lang = title_el.get(XML_LANG, "")
+            if lang == "de" and title_el.text:
+                title_de = title_el.text.strip()
+                break
+
     # ── Anime description ──────────────────────────────────────────────────
     desc_el = root.find("description")
     description = _clean_anidb_text(desc_el.text if desc_el is not None else None)
@@ -558,9 +569,6 @@ def fetch_anidb_anime(anidb_id: int) -> dict | None:
     # ── Episodes ──────────────────────────────────────────────────────────
     # AniDB episode types:  1=regular, 2=special, 3=credit, 4=trailer
     # We only want type 1 (regular episodes).
-    # The xml:lang namespace for title elements is xml ns.
-    XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
-
     episodes = []
     episodes_el = root.find("episodes")
     if episodes_el is not None:
@@ -600,7 +608,7 @@ def fetch_anidb_anime(anidb_id: int) -> dict | None:
             })
 
     episodes.sort(key=lambda e: e["episode_number"])
-    return {"description": description, "episodes": episodes}
+    return {"description": description, "title_de": title_de, "episodes": episodes}
 
 
 # ---------------------------------------------------------------------------
@@ -691,6 +699,13 @@ def sync_anidb_episodes():
 
         now = datetime.now(timezone.utc).isoformat()
         conn = get_db()
+
+        # Update German anime title from AniDB
+        if data.get("title_de"):
+            conn.execute(
+                "UPDATE metadata SET title_de=? WHERE slug=?",
+                (data["title_de"], slug),
+            )
 
         # Update anime description if AniDB has one and we don't have DE
         if data["description"]:
@@ -913,6 +928,7 @@ def get_metadata(slug):
         "title_romaji":       row["title_romaji"],
         "title_english":      row["title_english"],
         "title_native":       row["title_native"],
+        "title_de":           row["title_de"] if "title_de" in row.keys() else None,
         "description_en":     row["description_en"],
         "description_de":     row["description_de"],
         "genres":             json.loads(row["genres"]) if row["genres"] else [],
