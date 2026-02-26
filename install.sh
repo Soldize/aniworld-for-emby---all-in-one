@@ -146,8 +146,8 @@ install_venv() {
         # Kommentare und leere Zeilen überspringen
         line=$(echo "$line" | sed 's/#.*//' | xargs)
         [ -z "$line" ] && continue
-        # Paketname extrahieren (vor >=, ==, etc.)
-        pkg_name=$(echo "$line" | sed 's/[><=!].*//' | xargs)
+        # Paketname extrahieren (vor >=, ==, [extras], etc.)
+        pkg_name=$(echo "$line" | sed 's/\[.*\]//' | sed 's/[><=!].*//' | xargs)
         # Prüfen ob schon installiert
         local installed_ver=""
         installed_ver=$("$INSTALL_DIR/venv/bin/pip" show "$pkg_name" 2>/dev/null | grep -oP '(?<=^Version: ).+' || true)
