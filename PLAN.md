@@ -203,6 +203,7 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] Deutscher Titel aus AniDB XML extrahiert (`<title xml:lang="de">`)
 - [x] In metadata DB als `title_de` gespeichert
 - [x] `/metadata/{slug}` API gibt `title_de` zurück
+- [x] AniDB als Fallback wenn AniList + Jikan nichts finden (Chain: AniList → Jikan → AniDB)
 - [x] AniDB Requests über WARP Proxy
 - [x] ANIDB_DELAY 8s (Datacenter-safe)
 - [x] Ban-Erkennung: Sync bricht sofort ab statt endlos zu loopen
