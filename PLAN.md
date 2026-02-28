@@ -233,5 +233,15 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] `_parse_dt()` Helper für timezone-naive DB-Werte (assume UTC)
 - [x] Dashboard Log-Viewer filtert DeprecationWarnings automatisch aus
 
+#### Persistent Playwright Browser Pool ✅
+- [x] Einzelne Browser-Instanz bleibt im Hintergrund laufen (statt pro Request starten/stoppen)
+- [x] Network-Request-Intercept: m3u8/mp4 URLs werden sofort abgefangen (kein 3s Blindwait)
+- [x] `threading.Event()` für schnelles URL-Found-Signal (max 8s Timeout)
+- [x] JS-Eval Fallback wenn Network-Intercept nichts findet
+- [x] Auto-Cleanup: Browser schließt nach 5min Idle
+- [x] Crash-Recovery: bei disconnected Browser wird automatisch neuer gestartet
+- [x] Alle Hoster nutzen den Pool als Fallback: VOE, Filemoon, Vidmoly, Streamtape, Doodstream, Speedfiles, Unknown
+- [x] Erwartete Performance: ~1-1.5s statt ~4s pro Stream-Resolution
+- [x] VOE: Regex permanent broken (WASM-Obfuskation seit Feb 2026), Playwright-only
+
 ### 🔨 Offen
-- [ ] VOE Regex ist permanent broken (WASM-Obfuskation) - Playwright-only, kein Fix möglich

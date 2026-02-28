@@ -651,128 +651,157 @@ def _extract_voe(url, html):
 
     # Regex failed (VOE bot protection) → use Playwright headless browser
     log.info(f"VOE: regex failed, trying Playwright for {url}")
-    return _extract_voe_playwright(url)
+    return _extract_stream_playwright(url, "VOE")
 
-def _extract_voe_playwright(url):
-    """Use headless Chromium to extract VOE stream URL (bypasses bot protection)."""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log.error("VOE: Playwright not installed - can't resolve VOE streams")
-        return None
+# === Persistent Playwright Browser Pool ===
+# Keeps a single browser instance running for fast stream URL extraction.
+# Instead of launching/closing browser per request (~4s), we reuse it (~1-1.5s).
 
-    try:
-        with sync_playwright() as p:
-            launch_args = ["--no-sandbox", "--disable-gpu"]
-            proxy_settings = None
-            if WARP_PROXY:
-                proxy_settings = {"server": WARP_PROXY}
-            browser = p.chromium.launch(headless=True, args=launch_args, proxy=proxy_settings)
-            page = browser.new_page()
-            stream_url = None
-
-            # Intercept network requests to catch the actual video URL
-            def handle_request(request):
-                nonlocal stream_url
-                req_url = request.url
-                if any(ext in req_url for ext in [".m3u8", ".mp4"]) and "test-videos" not in req_url:
-                    stream_url = req_url
-
-            page.on("request", handle_request)
-            page.goto(url, wait_until="domcontentloaded", timeout=15000)
-
-            # Wait a bit for JS to execute and video player to load
-            page.wait_for_timeout(3000)
-
-            # Also try extracting from page JS variables
-            if not stream_url:
-                try:
-                    stream_url = page.evaluate("""() => {
-                        // Check for common video player source patterns
-                        const video = document.querySelector('video source, video');
-                        if (video && video.src && !video.src.includes('test-videos')) return video.src;
-                        // Check jwplayer
-                        if (typeof jwplayer !== 'undefined') {
-                            const pl = jwplayer();
-                            if (pl && pl.getPlaylistItem) {
-                                const item = pl.getPlaylistItem();
-                                if (item && item.file) return item.file;
-                            }
-                        }
-                        return null;
-                    }""")
-                except Exception:
-                    pass
-
-            browser.close()
-
-            if stream_url:
-                log.info(f"VOE: Playwright resolved: {stream_url[:80]}...")
-            else:
-                log.warning(f"VOE: Playwright could not find stream URL for {url}")
-            return stream_url
-
-    except Exception as e:
-        log.error(f"VOE: Playwright extraction failed: {e}")
-        return None
+_pw_instance = None      # playwright context manager
+_pw_browser = None       # persistent browser instance
+_pw_lock = threading.Lock()
+_pw_last_used = 0.0
+_PW_IDLE_TIMEOUT = 300   # close browser after 5min idle
 
 
-def _extract_playwright_generic(url, hoster_name="unknown"):
-    """Use headless Chromium to extract stream URL from SPA hosters (Filemoon etc.)."""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log.error(f"{hoster_name}: Playwright not installed - can't resolve streams")
-        return None
-
-    try:
-        with sync_playwright() as p:
-            launch_args = ["--no-sandbox", "--disable-gpu"]
+def _get_playwright_browser():
+    """Get or create a persistent Playwright browser instance."""
+    global _pw_instance, _pw_browser, _pw_last_used
+    with _pw_lock:
+        _pw_last_used = time.time()
+        if _pw_browser and _pw_browser.is_connected():
+            return _pw_browser
+        # Clean up old instance
+        _cleanup_playwright()
+        try:
+            from playwright.sync_api import sync_playwright
+            _pw_instance = sync_playwright().start()
+            launch_args = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
             proxy_settings = {"server": WARP_PROXY} if WARP_PROXY else None
-            browser = p.chromium.launch(headless=True, args=launch_args, proxy=proxy_settings)
-            page = browser.new_page()
-            stream_url = None
+            _pw_browser = _pw_instance.chromium.launch(
+                headless=True, args=launch_args, proxy=proxy_settings
+            )
+            log.info("Playwright browser pool: started")
+            return _pw_browser
+        except ImportError:
+            log.error("Playwright not installed - can't resolve streams")
+            return None
+        except Exception as e:
+            log.error(f"Playwright browser launch failed: {e}")
+            _cleanup_playwright()
+            return None
 
-            def handle_request(request):
-                nonlocal stream_url
-                req_url = request.url
-                if any(ext in req_url for ext in [".m3u8", ".mp4"]) and "test-videos" not in req_url:
-                    if not any(skip in req_url for skip in ["/jwplayer", ".gif?", "beacon"]):
-                        stream_url = req_url
 
-            page.on("request", handle_request)
-            page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            page.wait_for_timeout(5000)
+def _cleanup_playwright():
+    """Close the persistent browser and playwright instance."""
+    global _pw_instance, _pw_browser
+    try:
+        if _pw_browser:
+            _pw_browser.close()
+    except Exception:
+        pass
+    try:
+        if _pw_instance:
+            _pw_instance.stop()
+    except Exception:
+        pass
+    _pw_browser = None
+    _pw_instance = None
 
-            # Try extracting from page JS
-            if not stream_url:
-                try:
-                    stream_url = page.evaluate("""() => {
-                        const video = document.querySelector('video source, video');
-                        if (video && video.src && video.src.startsWith('http')) return video.src;
-                        if (typeof jwplayer !== 'undefined') {
+
+def _pw_idle_checker():
+    """Background thread that closes the browser after idle timeout."""
+    global _pw_last_used
+    while True:
+        time.sleep(60)
+        with _pw_lock:
+            if _pw_browser and time.time() - _pw_last_used > _PW_IDLE_TIMEOUT:
+                log.info("Playwright browser pool: closing (idle timeout)")
+                _cleanup_playwright()
+
+
+# Start idle checker thread
+threading.Thread(target=_pw_idle_checker, daemon=True).start()
+
+
+def _extract_stream_playwright(url, hoster_name="unknown"):
+    """Extract stream URL using the persistent browser pool.
+    Works for all hosters (VOE, Filemoon, Vidmoly, etc.).
+    Uses network request interception for instant URL capture."""
+    browser = _get_playwright_browser()
+    if not browser:
+        return None
+
+    page = None
+    try:
+        page = browser.new_page()
+        stream_url = None
+        url_found = threading.Event()
+
+        def handle_request(request):
+            nonlocal stream_url
+            req_url = request.url
+            if stream_url:
+                return
+            if any(ext in req_url for ext in [".m3u8", ".mp4"]):
+                if not any(skip in req_url for skip in [
+                    "test-videos", "/jwplayer", ".gif?", "beacon",
+                    "Big_Buck_Bunny", "analytics", "tracking"
+                ]):
+                    stream_url = req_url
+                    url_found.set()
+
+        page.on("request", handle_request)
+        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+
+        # Wait for network intercept (fast path) or timeout after 8s
+        url_found.wait(timeout=8)
+
+        # If network intercept didn't catch it, try JS extraction
+        if not stream_url:
+            try:
+                stream_url = page.evaluate("""() => {
+                    const video = document.querySelector('video source, video');
+                    if (video && video.src && video.src.startsWith('http')
+                        && !video.src.includes('test-videos')) return video.src;
+                    if (typeof jwplayer !== 'undefined') {
+                        try {
                             const pl = jwplayer();
                             if (pl && pl.getPlaylistItem) {
                                 const item = pl.getPlaylistItem();
                                 if (item && item.file) return item.file;
                             }
-                        }
-                        return null;
-                    }""")
-                except Exception:
-                    pass
+                        } catch(e) {}
+                    }
+                    // Check for HLS.js or other players
+                    const sources = document.querySelectorAll('source[src]');
+                    for (const s of sources) {
+                        if (s.src && s.src.startsWith('http')) return s.src;
+                    }
+                    return null;
+                }""")
+            except Exception:
+                pass
 
-            browser.close()
-
-            if stream_url:
-                log.info(f"{hoster_name}: Playwright resolved: {stream_url[:80]}...")
-            else:
-                log.warning(f"{hoster_name}: Playwright could not find stream URL for {url}")
-            return stream_url
+        if stream_url:
+            log.info(f"{hoster_name}: Playwright resolved: {stream_url[:80]}...")
+        else:
+            log.warning(f"{hoster_name}: Playwright could not find stream URL for {url}")
+        return stream_url
 
     except Exception as e:
         log.error(f"{hoster_name}: Playwright extraction failed: {e}")
+        # If browser crashed, clean it up so next call creates a fresh one
+        with _pw_lock:
+            if browser and not browser.is_connected():
+                _cleanup_playwright()
         return None
+    finally:
+        if page:
+            try:
+                page.close()
+            except Exception:
+                pass
 
 
 def extract_video_url(hoster_url, html):
@@ -786,7 +815,7 @@ def extract_video_url(hoster_url, html):
         if js_redirect and "/e/" in js_redirect.group(1):
             redirect_url = js_redirect.group(1)
             log.info(f"VOE JS-redirect detected: {redirect_url}")
-            return _extract_voe_playwright(redirect_url)
+            return _extract_stream_playwright(redirect_url, "VOE")
         
         # vidoza
         if "vidoza" in hoster_url:
@@ -807,7 +836,7 @@ def extract_video_url(hoster_url, html):
                 return m.group(1)
             # Filemoon is a SPA - regex won't work, needs Playwright
             log.info(f"Filemoon: regex failed, trying Playwright for {hoster_url}")
-            return _extract_playwright_generic(hoster_url, "filemoon")
+            return _extract_stream_playwright(hoster_url, "Filemoon")
         
         # vidmoly
         if "vidmoly" in hoster_url:
@@ -820,6 +849,8 @@ def extract_video_url(hoster_url, html):
             m = re.search(r'<source\s+src=["\']?(https?://[^"\']+)["\']?', html)
             if m:
                 return m.group(1)
+            log.info(f"Vidmoly: regex failed, trying Playwright for {hoster_url}")
+            return _extract_stream_playwright(hoster_url, "Vidmoly")
         
         # streamtape
         if "streamtape" in hoster_url or "stape" in hoster_url:
@@ -827,26 +858,33 @@ def extract_video_url(hoster_url, html):
             token_m = re.search(r"token=([^&'\"]+)", html)
             if id_m and token_m:
                 return f"https://streamtape.com/get_video?id={id_m.group(1)}&token={token_m.group(1)}"
+            log.info(f"Streamtape: regex failed, trying Playwright for {hoster_url}")
+            return _extract_stream_playwright(hoster_url, "Streamtape")
         
         # dood
         if "dood" in hoster_url or "d0000d" in hoster_url or "ds2play" in hoster_url:
             m = re.search(r"(/pass_md5/[^'\"]+)", html)
             if m:
                 return "https://dood.to" + m.group(1)
+            log.info(f"Doodstream: regex failed, trying Playwright for {hoster_url}")
+            return _extract_stream_playwright(hoster_url, "Doodstream")
         
         # speedfiles
         if "speedfiles" in hoster_url:
             m = re.search(r'var\s+_0x[a-f0-9]+=\s*"(https?://[^"]+)"', html)
             if m:
                 return m.group(1)
+            log.info(f"Speedfiles: regex failed, trying Playwright for {hoster_url}")
+            return _extract_stream_playwright(hoster_url, "Speedfiles")
         
-        # Generic fallback
+        # Generic fallback: try regex first, then Playwright
         m = re.search(r"(https?://[^\s\"']+\.(?:m3u8|mp4)(?:\?[^\s\"']*)?)", html)
         if m:
             return m.group(1)
         
-        log.warning(f"Could not extract video URL from: {hoster_url}")
-        return None
+        # Last resort: Playwright for unknown hosters
+        log.info(f"Unknown hoster: regex failed, trying Playwright for {hoster_url}")
+        return _extract_stream_playwright(hoster_url, "unknown")
     
     except Exception as e:
         log.error(f"Error extracting video URL from {hoster_url}: {e}")
