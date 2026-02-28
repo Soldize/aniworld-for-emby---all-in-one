@@ -1320,6 +1320,8 @@ async def get_service_logs(service: str, request: Request, lines: int = 100, lev
         cmd = ["sudo", "journalctl", "-u", unit, f"-n{lines}", "--no-pager", "-o", "short-iso"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
         log_lines = result.stdout.strip().split("\n") if result.stdout.strip() else []
+        # Filter out noisy DeprecationWarnings
+        log_lines = [l for l in log_lines if "DeprecationWarning" not in l and "datetime.datetime.utcnow" not in l]
         if level:
             level_upper = level.upper()
             log_lines = [l for l in log_lines if level_upper in l.upper()]

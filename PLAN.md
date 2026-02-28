@@ -216,6 +216,22 @@ Ersetzt das Channel-Plugin durch einen Strm-File-Ansatz:
 - [x] Segment-Order aus m3u8 Playlist extrahiert
 - [x] Thread-safe mit Locks, verhindert doppeltes Fetchen
 
+#### Filemoon Playwright-Fallback ✅
+- [x] Filemoon ist ein SPA - Regex findet nichts im HTML
+- [x] Neuer `_extract_playwright_generic()` für SPA-Hoster (Filemoon etc.)
+- [x] Network-Intercept (m3u8/mp4 Requests abfangen) + JS-Eval Fallback
+- [x] Läuft über WARP Proxy wenn konfiguriert
+
+#### Vidmoly Regex-Fix ✅
+- [x] Vidmoly nutzt einfache Anführungszeichen (`'`) statt doppelte (`"`)
+- [x] Regex akzeptiert jetzt beide: `["\']?`
+- [x] `sources: [{ file: '...' }]` Pattern hinzugefügt
+- [x] Vidmoly Domain gewechselt: `vidmoly.biz` → `vidmoly.net` (funktioniert über WARP)
+
+#### DeprecationWarning Cleanup ✅
+- [x] `datetime.utcnow()` → `datetime.now(tz=timezone.utc)` (23 Stellen in api_server.py)
+- [x] `_parse_dt()` Helper für timezone-naive DB-Werte (assume UTC)
+- [x] Dashboard Log-Viewer filtert DeprecationWarnings automatisch aus
+
 ### 🔨 Offen
-- [ ] Filemoon: Playwright-Fallback einbauen (SPA, Regex-Extraktion funktioniert nicht)
-- [ ] Vidmoly über WARP testen (Datacenter-IP Blocking)
+- [ ] VOE Regex ist permanent broken (WASM-Obfuskation) - Playwright-only, kein Fix möglich

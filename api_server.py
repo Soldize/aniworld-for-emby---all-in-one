@@ -5,7 +5,15 @@ import time
 import logging
 import re
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _parse_dt(s):
+    """Parse ISO datetime string, assume UTC if naive."""
+    dt = _parse_dt(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 from html import unescape
 
 import requests
@@ -260,7 +268,7 @@ def scrape_season_episodes(slug, season_number):
         # Write to DB
         conn = get_conn()
         try:
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(tz=timezone.utc).isoformat()
             for ep_num, title, url in episodes:
                 conn.execute("""
                     INSERT INTO episode (anime_slug, season_number, episode_number, title, url, last_scraped)
@@ -351,7 +359,7 @@ def scrape_film_episodes(slug):
         # Write to DB
         conn = get_conn()
         try:
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(tz=timezone.utc).isoformat()
             for ep_num, title, url in episodes:
                 conn.execute("""
                     INSERT INTO episode (anime_slug, season_number, episode_number, title, url, last_scraped)
@@ -385,16 +393,16 @@ def _get_hoster_cache(slug, season, episode):
         if not rows:
             return None
         # Check redirect TTL (7 days)
-        rca = datetime.fromisoformat(rows[0]["redirect_cached_at"])
-        if datetime.utcnow() - rca > timedelta(days=HOSTER_CACHE_TTL_DAYS):
+        rca = _parse_dt(rows[0]["redirect_cached_at"])
+        if datetime.now(tz=timezone.utc) - rca > timedelta(days=HOSTER_CACHE_TTL_DAYS):
             return None
         result = []
         for r in rows:
             h = {"name": r["hoster"], "language": r["language"], "langKey": r["lang_key"], "redirectUrl": r["redirect_url"], "streamUrl": None, "failedAt": r["failed_at"]}
             # Check CDN URL TTL (2h)
             if r["stream_url"] and r["stream_cached_at"]:
-                sca = datetime.fromisoformat(r["stream_cached_at"])
-                if datetime.utcnow() - sca <= timedelta(hours=STREAM_URL_CACHE_TTL_H):
+                sca = _parse_dt(r["stream_cached_at"])
+                if datetime.now(tz=timezone.utc) - sca <= timedelta(hours=STREAM_URL_CACHE_TTL_H):
                     h["streamUrl"] = r["stream_url"]
             result.append(h)
         return result
@@ -405,7 +413,7 @@ def _set_hoster_cache(slug, season, episode, hosters):
     """Save hoster list (redirect URLs only) to DB."""
     conn = get_conn()
     try:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(tz=timezone.utc).isoformat()
         conn.execute("DELETE FROM stream_cache WHERE slug=? AND season=? AND episode=?", (slug, season, episode))
         for h in hosters:
             conn.execute(
@@ -420,7 +428,7 @@ def _update_stream_url_cache(slug, season, episode, hoster_name, lang_key, strea
     """Update CDN stream URL in cache for a specific hoster."""
     conn = get_conn()
     try:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(tz=timezone.utc).isoformat()
         conn.execute(
             "UPDATE stream_cache SET stream_url=?, stream_cached_at=?, last_accessed=? WHERE slug=? AND season=? AND episode=? AND hoster=? AND lang_key=?",
             (stream_url, now, now, slug, season, episode, hoster_name, lang_key)
@@ -435,7 +443,7 @@ def _mark_hoster_failed(slug, season, episode, hoster_name, lang_key):
     try:
         conn.execute(
             "UPDATE stream_cache SET failed_at=? WHERE slug=? AND season=? AND episode=? AND hoster=? AND lang_key=?",
-            (datetime.utcnow().isoformat(), slug, season, episode, hoster_name, lang_key)
+            (datetime.now(tz=timezone.utc).isoformat(), slug, season, episode, hoster_name, lang_key)
         )
         conn.commit()
     finally:
@@ -514,7 +522,7 @@ def resolve_stream_urls(slug, season, episode):
         conn = get_conn()
         try:
             row = conn.execute("SELECT redirect_cached_at FROM stream_cache WHERE slug=? AND season=? AND episode=? LIMIT 1", (slug, season, episode)).fetchone()
-            if row and datetime.utcnow() - datetime.fromisoformat(row["redirect_cached_at"]) > timedelta(days=6):
+            if row and datetime.now(tz=timezone.utc) - _parse_dt(row["redirect_cached_at"]) > timedelta(days=6):
                 threading.Thread(target=_scrape_hoster_list, args=(slug, season, episode), daemon=True).start()
         finally:
             conn.close()
@@ -552,7 +560,7 @@ def resolve_stream_urls(slug, season, episode):
             # Skip recently failed
             if h.get("failedAt"):
                 try:
-                    if datetime.utcnow() - datetime.fromisoformat(h["failedAt"]) < timedelta(minutes=HOSTER_FAIL_TTL_MINUTES):
+                    if datetime.now(tz=timezone.utc) - _parse_dt(h["failedAt"]) < timedelta(minutes=HOSTER_FAIL_TTL_MINUTES):
                         continue
                 except Exception:
                     pass
@@ -709,6 +717,64 @@ def _extract_voe_playwright(url):
         return None
 
 
+def _extract_playwright_generic(url, hoster_name="unknown"):
+    """Use headless Chromium to extract stream URL from SPA hosters (Filemoon etc.)."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        log.error(f"{hoster_name}: Playwright not installed - can't resolve streams")
+        return None
+
+    try:
+        with sync_playwright() as p:
+            launch_args = ["--no-sandbox", "--disable-gpu"]
+            proxy_settings = {"server": WARP_PROXY} if WARP_PROXY else None
+            browser = p.chromium.launch(headless=True, args=launch_args, proxy=proxy_settings)
+            page = browser.new_page()
+            stream_url = None
+
+            def handle_request(request):
+                nonlocal stream_url
+                req_url = request.url
+                if any(ext in req_url for ext in [".m3u8", ".mp4"]) and "test-videos" not in req_url:
+                    if not any(skip in req_url for skip in ["/jwplayer", ".gif?", "beacon"]):
+                        stream_url = req_url
+
+            page.on("request", handle_request)
+            page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            page.wait_for_timeout(5000)
+
+            # Try extracting from page JS
+            if not stream_url:
+                try:
+                    stream_url = page.evaluate("""() => {
+                        const video = document.querySelector('video source, video');
+                        if (video && video.src && video.src.startsWith('http')) return video.src;
+                        if (typeof jwplayer !== 'undefined') {
+                            const pl = jwplayer();
+                            if (pl && pl.getPlaylistItem) {
+                                const item = pl.getPlaylistItem();
+                                if (item && item.file) return item.file;
+                            }
+                        }
+                        return null;
+                    }""")
+                except Exception:
+                    pass
+
+            browser.close()
+
+            if stream_url:
+                log.info(f"{hoster_name}: Playwright resolved: {stream_url[:80]}...")
+            else:
+                log.warning(f"{hoster_name}: Playwright could not find stream URL for {url}")
+            return stream_url
+
+    except Exception as e:
+        log.error(f"{hoster_name}: Playwright extraction failed: {e}")
+        return None
+
+
 def extract_video_url(hoster_url, html):
     """Extract video URL from hoster page HTML. Returns URL string or None."""
     try:
@@ -733,19 +799,25 @@ def extract_video_url(hoster_url, html):
         
         # filemoon
         if "filemoon" in hoster_url:
-            m = re.search(r'file:\s*"(https?://[^"]+\.m3u8[^"]*)"', html)
+            m = re.search(r'file:\s*["\']?(https?://[^"\']+\.m3u8[^"\']*)["\']?', html)
             if m:
                 return m.group(1)
-            m = re.search(r'sources:\s*\[\{[^}]*file:\s*"(https?://[^"]+)"', html)
+            m = re.search(r'sources:\s*\[\{\s*file:\s*["\']?(https?://[^"\']+)["\']?', html)
             if m:
                 return m.group(1)
+            # Filemoon is a SPA - regex won't work, needs Playwright
+            log.info(f"Filemoon: regex failed, trying Playwright for {hoster_url}")
+            return _extract_playwright_generic(hoster_url, "filemoon")
         
         # vidmoly
         if "vidmoly" in hoster_url:
-            m = re.search(r'file:\s*"(https?://[^"]+\.m3u8[^"]*)"', html)
+            m = re.search(r'file:\s*["\']?(https?://[^"\']+\.m3u8[^"\']*)["\']?', html)
             if m:
                 return m.group(1)
-            m = re.search(r'<source\s+src="(https?://[^"]+)"', html)
+            m = re.search(r'sources:\s*\[\{\s*file:\s*["\']?(https?://[^"\']+)["\']?', html)
+            if m:
+                return m.group(1)
+            m = re.search(r'<source\s+src=["\']?(https?://[^"\']+)["\']?', html)
             if m:
                 return m.group(1)
         
@@ -786,7 +858,7 @@ def sync_catalog():
     log.info("Starting catalog sync...")
     conn = get_conn()
 
-    conn.execute("INSERT INTO sync_log (started_at) VALUES (?)", (datetime.utcnow().isoformat(),))
+    conn.execute("INSERT INTO sync_log (started_at) VALUES (?)", (datetime.now(tz=timezone.utc).isoformat(),))
     sync_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.commit()
 
@@ -818,14 +890,14 @@ def sync_catalog():
         conn.execute("""
             UPDATE sync_log SET finished_at=?, status='done',
             entries_total=?, entries_updated=? WHERE id=?
-        """, (datetime.utcnow().isoformat(), total, updated, sync_id))
+        """, (datetime.now(tz=timezone.utc).isoformat(), total, updated, sync_id))
         conn.commit()
         log.info(f"Catalog sync done: {updated}/{total}")
         return updated
 
     except Exception as e:
         conn.execute("UPDATE sync_log SET finished_at=?, status='error', error=? WHERE id=?",
-                     (datetime.utcnow().isoformat(), str(e), sync_id))
+                     (datetime.now(tz=timezone.utc).isoformat(), str(e), sync_id))
         conn.commit()
         log.error(f"Sync failed: {e}")
         raise
@@ -865,7 +937,7 @@ def sync_anime_details(slug):
             season_count=?, last_scraped=?, updated_at=datetime('now')
             WHERE slug=?
         """, (has_movies, description, cover_url, len(season_nums),
-              datetime.utcnow().isoformat(), slug))
+              datetime.now(tz=timezone.utc).isoformat(), slug))
 
         for sn in season_nums:
             conn.execute("""
@@ -882,8 +954,8 @@ def _needs_detail_scrape(last_scraped):
     if not last_scraped:
         return True
     try:
-        scraped_dt = datetime.fromisoformat(last_scraped)
-        return datetime.utcnow() - scraped_dt > timedelta(days=DETAIL_CACHE_DAYS)
+        scraped_dt = _parse_dt(last_scraped)
+        return datetime.now(tz=timezone.utc) - scraped_dt > timedelta(days=DETAIL_CACHE_DAYS)
     except Exception:
         return True
 
@@ -919,7 +991,7 @@ def sync_details_batch():
                 # Mark as scraped anyway to avoid retry loop
                 c = get_conn()
                 c.execute("UPDATE anime SET last_scraped=? WHERE slug=?",
-                          (datetime.utcnow().isoformat(), row["slug"]))
+                          (datetime.now(tz=timezone.utc).isoformat(), row["slug"]))
                 c.commit()
                 c.close()
 
@@ -1160,7 +1232,7 @@ def incremental_sync():
                 conn.execute("""
                     UPDATE anime SET season_count=?, last_scraped=?, updated_at=datetime('now')
                     WHERE slug=?
-                """, (live_season_count, datetime.utcnow().isoformat(), slug))
+                """, (live_season_count, datetime.now(tz=timezone.utc).isoformat(), slug))
                 for sn in live_season_nums:
                     conn.execute("""
                         INSERT INTO season (anime_slug, season_number) VALUES (?, ?)
@@ -1332,7 +1404,7 @@ def nightly_episode_scrape():
                                     # Skip recently failed (within 6h)
                                     if h.get("failedAt"):
                                         try:
-                                            if datetime.utcnow() - datetime.fromisoformat(h["failedAt"]) < timedelta(minutes=HOSTER_FAIL_TTL_MINUTES):
+                                            if datetime.now(tz=timezone.utc) - _parse_dt(h["failedAt"]) < timedelta(minutes=HOSTER_FAIL_TTL_MINUTES):
                                                 continue
                                         except Exception:
                                             pass
@@ -1573,8 +1645,8 @@ def get_season_episodes(slug, season_num):
             last_scraped = rows[0]["last_scraped"] if rows else None
             if last_scraped:
                 try:
-                    scraped_dt = datetime.fromisoformat(last_scraped)
-                    if datetime.utcnow() - scraped_dt > timedelta(hours=24):
+                    scraped_dt = _parse_dt(last_scraped)
+                    if datetime.now(tz=timezone.utc) - scraped_dt > timedelta(hours=24):
                         needs_scrape = True
                 except Exception:
                     needs_scrape = True
@@ -1648,8 +1720,8 @@ def get_film_episodes(slug):
             last_scraped = rows[0]["last_scraped"] if rows else None
             if last_scraped:
                 try:
-                    scraped_dt = datetime.fromisoformat(last_scraped)
-                    if datetime.utcnow() - scraped_dt > timedelta(hours=24):
+                    scraped_dt = _parse_dt(last_scraped)
+                    if datetime.now(tz=timezone.utc) - scraped_dt > timedelta(hours=24):
                         needs_scrape = True
                 except Exception:
                     needs_scrape = True
@@ -1728,7 +1800,7 @@ def trigger_full_sync():
 
     def _run():
         _full_sync_status["running"] = True
-        _full_sync_status["started_at"] = datetime.utcnow().isoformat()
+        _full_sync_status["started_at"] = datetime.now(tz=timezone.utc).isoformat()
         _full_sync_status["result"] = None
         _full_sync_status["finished_at"] = None
         log.info("Full sync started (triggered via API)")
@@ -1740,7 +1812,7 @@ def trigger_full_sync():
             _full_sync_status["result"] = {"mode": "full", "error": str(e)}
         finally:
             _full_sync_status["running"] = False
-            _full_sync_status["finished_at"] = datetime.utcnow().isoformat()
+            _full_sync_status["finished_at"] = datetime.now(tz=timezone.utc).isoformat()
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
@@ -1762,7 +1834,7 @@ def trigger_incremental_sync():
 
     def _run():
         _incremental_sync_status["running"] = True
-        _incremental_sync_status["started_at"] = datetime.utcnow().isoformat()
+        _incremental_sync_status["started_at"] = datetime.now(tz=timezone.utc).isoformat()
         _incremental_sync_status["result"] = None
         _incremental_sync_status["finished_at"] = None
         _incremental_sync_status["progress"] = None
@@ -1775,7 +1847,7 @@ def trigger_incremental_sync():
             _incremental_sync_status["result"] = {"mode": "incremental", "error": str(e)}
         finally:
             _incremental_sync_status["running"] = False
-            _incremental_sync_status["finished_at"] = datetime.utcnow().isoformat()
+            _incremental_sync_status["finished_at"] = datetime.now(tz=timezone.utc).isoformat()
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
