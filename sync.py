@@ -147,18 +147,32 @@ def write_tvshow_nfo(show_dir, anime_name, metadata):
     """Write tvshow.nfo for an anime series. Updates if missing plot."""
     nfo_path = os.path.join(show_dir, "tvshow.nfo")
 
-    # Skip if exists and already has a plot
+    # Skip if exists, has a plot, AND title is not a slug
     if os.path.exists(nfo_path):
         try:
             with open(nfo_path, 'r', encoding='utf-8') as f:
-                if "<plot>" in f.read():
+                content = f.read()
+                # Regenerate if title is still a slug (contains hyphens, no spaces)
+                import re
+                title_match = re.search(r'<title>([^<]+)</title>', content)
+                title_is_slug = title_match and '-' in title_match.group(1) and ' ' not in title_match.group(1)
+                if "<plot>" in content and not title_is_slug:
                     return
         except Exception:
             pass
 
     root = ET.Element("tvshow")
-    ET.SubElement(root, "title").text = anime_name
-    ET.SubElement(root, "sorttitle").text = anime_name
+
+    # Use proper title from metadata (prefer German > English > Romaji > slug)
+    display_title = anime_name  # fallback: slug
+    if metadata:
+        display_title = (metadata.get("title_de")
+                         or metadata.get("title_english")
+                         or metadata.get("title_romaji")
+                         or anime_name)
+
+    ET.SubElement(root, "title").text = display_title
+    ET.SubElement(root, "sorttitle").text = display_title
 
     if metadata:
         # Original title (Japanese/Romaji)
