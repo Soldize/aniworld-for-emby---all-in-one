@@ -327,8 +327,21 @@ def _write_episode(show_dir, safe_name, anime_name, slug, season, ep_num, ep_tit
     strm_path = os.path.join(season_dir, f"{base_name}.strm")
     nfo_path = os.path.join(season_dir, f"{base_name}.nfo")
 
-    # Write .strm if missing
+    # Write .strm if missing or URL changed (e.g. base_url/token update)
+    strm_needs_update = False
     if not os.path.exists(strm_path):
+        strm_needs_update = True
+    else:
+        token_param = f"?token={STREAM_TOKEN}" if STREAM_TOKEN else ""
+        expected_url = f"{PROXY_BASE}/play/{slug}/{season}/{ep_num}{token_param}"
+        try:
+            with open(strm_path, 'r', encoding='utf-8') as f:
+                current_url = f.read().strip()
+            if current_url != expected_url:
+                strm_needs_update = True
+        except Exception:
+            strm_needs_update = True
+    if strm_needs_update:
         write_strm(strm_path, slug, season, ep_num)
 
     # Write .nfo if missing OR if it has no plot and we now have metadata
