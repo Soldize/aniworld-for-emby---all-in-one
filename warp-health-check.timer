@@ -1,0 +1,10 @@
+[Unit]
+Description=WARP Health Check Timer (every 15 min)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

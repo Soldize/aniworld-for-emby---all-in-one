@@ -1,0 +1,8 @@
+[Unit]
+Description=WARP Health Check for AniWorld
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/aniworld/warp-health-check.sh
+Environment=PROXY_PORT=5080

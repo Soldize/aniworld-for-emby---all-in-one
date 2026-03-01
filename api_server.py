@@ -53,14 +53,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("aniworld-api")
 
 # SOCKS5 proxy support (e.g. Cloudflare WARP in proxy mode)
+# WARP is only used for hoster stream resolution (VOE, Vidmoly etc.)
+# aniworld.to scraping goes direct - no proxy needed, avoids WARP instability
 WARP_PROXY = os.environ.get("WARP_PROXY", "").strip()
 if not WARP_PROXY:
     WARP_PROXY = _cfg.get("proxy", "warp_socks5", fallback="").strip()
 if WARP_PROXY:
-    logging.info(f"WARP SOCKS5 proxy enabled: {WARP_PROXY}")
-    _PROXIES = {"http": WARP_PROXY, "https": WARP_PROXY}
+    logging.info(f"WARP SOCKS5 proxy enabled (hoster-only): {WARP_PROXY}")
+    _HOSTER_PROXIES = {"http": WARP_PROXY, "https": WARP_PROXY}
 else:
-    _PROXIES = None
+    _HOSTER_PROXIES = None
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -78,7 +80,7 @@ def _rate_limited_get(url, timeout=30, max_wait=10, delay=None):
         elapsed = time.time() - _last_request_time
         if elapsed < effective_delay:
             time.sleep(effective_delay - elapsed)
-        resp = requests.get(url, headers=HEADERS, timeout=timeout, proxies=_PROXIES)
+        resp = requests.get(url, headers=HEADERS, timeout=timeout)
         _last_request_time = time.time()
         return resp
     finally:
