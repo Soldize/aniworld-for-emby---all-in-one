@@ -277,6 +277,9 @@ def sync_anime(anime, metadata):
         cover_url = anime["coverUrl"]
 
     if cover_url:
+        # Fix relative URLs from aniworld.to API
+        if cover_url.startswith("/"):
+            cover_url = f"https://aniworld.to{cover_url}"
         ext = "jpg"
         if ".png" in cover_url:
             ext = "png"
