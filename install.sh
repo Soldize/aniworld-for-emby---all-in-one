@@ -14,7 +14,7 @@ GITHUB_REPO="Soldize/aniworld-for-emby---all-in-one"
 GITHUB_RAW="https://raw.githubusercontent.com/$GITHUB_REPO/main"
 GITHUB_API="https://api.github.com/repos/$GITHUB_REPO"
 VERSION_FILE="$INSTALL_DIR/.version"
-REQUIRED_FILES="api_server.py metadata_server.py proxy.py sync.py requirements.txt"
+REQUIRED_FILES="api_server.py metadata_server.py proxy.py sync.py requirements.txt warp-health-check.sh"
 INSTALLER_VERSION="2026-02-26a"
 
 RED='\033[0;31m'
@@ -623,6 +623,14 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
+    # WARP Health-Check Timer (wenn Script vorhanden)
+    if [ -f "$INSTALL_DIR/warp-health-check.sh" ]; then
+        chmod +x "$INSTALL_DIR/warp-health-check.sh"
+        for sf in warp-health-check.service warp-health-check.timer; do
+            curl -sfL "$GITHUB_RAW/$sf" -o "/etc/systemd/system/$sf" 2>/dev/null || true
+        done
+    fi
+
     echo -e "${GREEN}✅ systemd Services erstellt${NC}"
 }
 
@@ -655,6 +663,8 @@ start_services() {
     sleep 2
     systemctl enable --now aniworld-sync.timer
     echo -e "  Sync Timer aktiviert."
+    systemctl enable --now warp-health-check.timer 2>/dev/null && \
+        echo -e "  WARP Health-Check Timer aktiviert (alle 15 Min)." || true
     sleep 2
     echo ""
 }
@@ -960,6 +970,17 @@ check_for_updates() {
         fi
     fi
 
+    # WARP Health-Check Timer installieren (wenn Script vorhanden)
+    if [ -f "$INSTALL_DIR/warp-health-check.sh" ]; then
+        chmod +x "$INSTALL_DIR/warp-health-check.sh"
+        # Service + Timer von GitHub laden
+        for sf in warp-health-check.service warp-health-check.timer; do
+            curl -sfL "$GITHUB_RAW/$sf" -o "/etc/systemd/system/$sf" 2>/dev/null && \
+                echo -e "  ${GREEN}✅ $sf${NC}" || \
+                echo -e "  ${YELLOW}⚠️  $sf Download fehlgeschlagen${NC}"
+        done
+    fi
+
     echo ""
     echo -e "${YELLOW}Starte Services neu...${NC}"
     systemctl daemon-reload
@@ -970,6 +991,7 @@ check_for_updates() {
     systemctl restart aniworld-proxy
     sleep 2
     systemctl enable --now aniworld-sync.timer 2>/dev/null || true
+    systemctl enable --now warp-health-check.timer 2>/dev/null || true
 
     echo ""
     verify_services
@@ -1020,9 +1042,9 @@ uninstall() {
     fi
 
     echo -e "${YELLOW}Stoppe Services...${NC}"
-    systemctl stop aniworld-api aniworld-metadata aniworld-proxy aniworld-sync.timer 2>/dev/null || true
-    systemctl disable aniworld-api aniworld-metadata aniworld-proxy aniworld-sync.timer 2>/dev/null || true
-    rm -f /etc/systemd/system/aniworld-*.service /etc/systemd/system/aniworld-sync.timer
+    systemctl stop aniworld-api aniworld-metadata aniworld-proxy aniworld-sync.timer warp-health-check.timer 2>/dev/null || true
+    systemctl disable aniworld-api aniworld-metadata aniworld-proxy aniworld-sync.timer warp-health-check.timer 2>/dev/null || true
+    rm -f /etc/systemd/system/aniworld-*.service /etc/systemd/system/aniworld-sync.timer /etc/systemd/system/warp-health-check.service /etc/systemd/system/warp-health-check.timer
     systemctl daemon-reload
 
     echo -e "${YELLOW}Lösche Dateien...${NC}"
