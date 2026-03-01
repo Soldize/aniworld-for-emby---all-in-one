@@ -491,7 +491,7 @@ async def play(request: Request, slug: str, season: int, episode: int):
         raise HTTPException(status_code=404, detail="No streams found")
 
     lang_priority = {"Deutsch": 0, "GerSub": 1, "EngSub": 2}
-    hoster_priority = ["VOE", "Vidmoly", "Doodstream", "Streamtape", "Filemoon"]
+    hoster_priority = ["VOE", "Vidmoly"]
 
     def sort_key(stream):
         lang_idx = lang_priority.get(stream.get("language", ""), 99)
@@ -1210,9 +1210,6 @@ async def hoster_health(request: Request):
     hosters = {
         "VOE": "https://voe.sx",
         "Vidmoly": "https://vidmoly.biz",
-        "Filemoon": "https://filemoon.to",
-        "Streamtape": "https://streamtape.com",
-        "Doodstream": "https://doodstream.com",
     }
     results = []
     async with httpx.AsyncClient(timeout=httpx.Timeout(8.0), follow_redirects=True, proxy=WARP_PROXY or None) as client:

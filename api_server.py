@@ -528,7 +528,7 @@ def resolve_stream_urls(slug, season, episode):
             conn.close()
 
     # Hoster preference order - only try these, in this order
-    HOSTER_PRIORITY = ["VOE", "Vidmoly", "Doodstream", "Streamtape", "Filemoon"]
+    HOSTER_PRIORITY = ["VOE", "Vidmoly"]
     # Language priority: Deutsch(1) > GerSub(3) > EngSub(2)
     LANG_PRIORITY = [1, 3, 2]
 
@@ -537,7 +537,7 @@ def resolve_stream_urls(slug, season, episode):
 
     # Pass 1: return all cached CDN URLs instantly (no requests needed)
     for h in hosters:
-        if h.get("streamUrl"):
+        if h.get("streamUrl") and h["name"] in HOSTER_PRIORITY:
             lk = h["langKey"]
             if lk not in results_by_lang or HOSTER_PRIORITY.index(h["name"]) < HOSTER_PRIORITY.index(results_by_lang[lk]["name"]):
                 results_by_lang[lk] = h
@@ -653,99 +653,106 @@ def _extract_voe(url, html):
     log.info(f"VOE: regex failed, trying Playwright for {url}")
     return _extract_stream_playwright(url, "VOE")
 
-# === Persistent Playwright Browser Pool ===
-# Keeps a single browser instance running for fast stream URL extraction.
-# Instead of launching/closing browser per request (~4s), we reuse it (~1-1.5s).
+# === Async Playwright Browser Pool ===
+# Uses playwright.async_api in a dedicated asyncio event loop thread.
+# This avoids the greenlet thread-safety issue entirely - all Playwright
+# operations run in one thread, but multiple pages can load concurrently.
 
-_pw_instance = None      # playwright context manager
-_pw_browser = None       # persistent browser instance
-_pw_lock = threading.Lock()
-_pw_extract_lock = threading.Lock()  # serialize all Playwright extractions (greenlet is not thread-safe)
+import asyncio
+import concurrent.futures
+
+_pw_loop = None          # dedicated asyncio event loop for Playwright
+_pw_loop_thread = None   # thread running the event loop
+_pw_browser = None       # persistent async browser instance
+_pw_playwright = None    # async playwright context
 _pw_last_used = 0.0
 _PW_IDLE_TIMEOUT = 300   # close browser after 5min idle
 
 
-def _get_playwright_browser():
-    """Get or create a persistent Playwright browser instance."""
-    global _pw_instance, _pw_browser, _pw_last_used
-    with _pw_lock:
-        _pw_last_used = time.time()
-        if _pw_browser and _pw_browser.is_connected():
-            return _pw_browser
-        # Clean up old instance
-        _cleanup_playwright()
-        try:
-            from playwright.sync_api import sync_playwright
-            _pw_instance = sync_playwright().start()
-            launch_args = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
-            proxy_settings = {"server": WARP_PROXY} if WARP_PROXY else None
-            _pw_browser = _pw_instance.chromium.launch(
-                headless=True, args=launch_args, proxy=proxy_settings
-            )
-            log.info("Playwright browser pool: started")
-            return _pw_browser
-        except ImportError:
-            log.error("Playwright not installed - can't resolve streams")
-            return None
-        except Exception as e:
-            log.error(f"Playwright browser launch failed: {e}")
-            _cleanup_playwright()
-            return None
+def _ensure_pw_loop():
+    """Ensure the Playwright asyncio event loop thread is running."""
+    global _pw_loop, _pw_loop_thread
+    if _pw_loop and _pw_loop.is_running():
+        return _pw_loop
+    _pw_loop = asyncio.new_event_loop()
+    _pw_loop_thread = threading.Thread(target=_pw_loop.run_forever, daemon=True)
+    _pw_loop_thread.start()
+    # Start idle checker as async task in the loop
+    asyncio.run_coroutine_threadsafe(_pw_idle_checker(), _pw_loop)
+    return _pw_loop
 
 
-def _cleanup_playwright():
+async def _get_pw_browser():
+    """Get or create a persistent async Playwright browser instance."""
+    global _pw_playwright, _pw_browser, _pw_last_used
+    _pw_last_used = time.time()
+    if _pw_browser and _pw_browser.is_connected():
+        return _pw_browser
+    # Clean up old instance
+    await _cleanup_pw()
+    try:
+        from playwright.async_api import async_playwright
+        _pw_playwright = await async_playwright().start()
+        launch_args = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
+        proxy_settings = {"server": WARP_PROXY} if WARP_PROXY else None
+        _pw_browser = await _pw_playwright.chromium.launch(
+            headless=True, args=launch_args, proxy=proxy_settings
+        )
+        log.info("Playwright async browser pool: started")
+        return _pw_browser
+    except ImportError:
+        log.error("Playwright not installed - can't resolve streams")
+        return None
+    except Exception as e:
+        log.error(f"Playwright browser launch failed: {e}")
+        await _cleanup_pw()
+        return None
+
+
+async def _cleanup_pw():
     """Close the persistent browser and playwright instance."""
-    global _pw_instance, _pw_browser
+    global _pw_playwright, _pw_browser
     try:
         if _pw_browser:
-            _pw_browser.close()
+            await _pw_browser.close()
     except Exception:
         pass
     try:
-        if _pw_instance:
-            _pw_instance.stop()
+        if _pw_playwright:
+            await _pw_playwright.stop()
     except Exception:
         pass
     _pw_browser = None
-    _pw_instance = None
+    _pw_playwright = None
 
 
-def _pw_idle_checker():
-    """Background thread that closes the browser after idle timeout."""
-    global _pw_last_used
+async def _pw_idle_checker():
+    """Async task that closes the browser after idle timeout."""
     while True:
-        time.sleep(60)
-        with _pw_lock:
-            if _pw_browser and time.time() - _pw_last_used > _PW_IDLE_TIMEOUT:
-                log.info("Playwright browser pool: closing (idle timeout)")
-                _cleanup_playwright()
+        await asyncio.sleep(60)
+        if _pw_browser and time.time() - _pw_last_used > _PW_IDLE_TIMEOUT:
+            log.info("Playwright async browser pool: closing (idle timeout)")
+            await _cleanup_pw()
 
 
-# Start idle checker thread
-threading.Thread(target=_pw_idle_checker, daemon=True).start()
+# Start the event loop thread
+_ensure_pw_loop()
 
 
-def _extract_stream_playwright(url, hoster_name="unknown"):
-    """Extract stream URL using the persistent browser pool.
-    Works for all hosters (VOE, Filemoon, Vidmoly, etc.).
-    Uses network request interception for instant URL capture.
-    Serialized via lock - Playwright sync API is not thread-safe (greenlet)."""
-    with _pw_extract_lock:
-        return _extract_stream_playwright_inner(url, hoster_name)
-
-
-def _extract_stream_playwright_inner(url, hoster_name):
-    browser = _get_playwright_browser()
+async def _extract_stream_async(url, hoster_name):
+    """Extract stream URL using async Playwright. Runs in the dedicated event loop.
+    Multiple calls can run concurrently (true async parallelism)."""
+    browser = await _get_pw_browser()
     if not browser:
         return None
 
     page = None
     try:
-        page = browser.new_page()
+        page = await browser.new_page()
         stream_url = None
-        url_found = threading.Event()
+        url_found = asyncio.Event()
 
-        def handle_request(request):
+        async def handle_request(request):
             nonlocal stream_url
             req_url = request.url
             if stream_url:
@@ -759,15 +766,18 @@ def _extract_stream_playwright_inner(url, hoster_name):
                     url_found.set()
 
         page.on("request", handle_request)
-        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
 
         # Wait for network intercept (fast path) or timeout after 8s
-        url_found.wait(timeout=8)
+        try:
+            await asyncio.wait_for(url_found.wait(), timeout=8)
+        except asyncio.TimeoutError:
+            pass
 
         # If network intercept didn't catch it, try JS extraction
         if not stream_url:
             try:
-                stream_url = page.evaluate("""() => {
+                stream_url = await page.evaluate("""() => {
                     const video = document.querySelector('video source, video');
                     if (video && video.src && video.src.startsWith('http')
                         && !video.src.includes('test-videos')) return video.src;
@@ -780,7 +790,6 @@ def _extract_stream_playwright_inner(url, hoster_name):
                             }
                         } catch(e) {}
                     }
-                    // Check for HLS.js or other players
                     const sources = document.querySelectorAll('source[src]');
                     for (const s of sources) {
                         if (s.src && s.src.startsWith('http')) return s.src;
@@ -798,23 +807,39 @@ def _extract_stream_playwright_inner(url, hoster_name):
 
     except Exception as e:
         log.error(f"{hoster_name}: Playwright extraction failed: {e}")
-        # If browser crashed, clean it up so next call creates a fresh one
-        with _pw_lock:
-            if browser and not browser.is_connected():
-                _cleanup_playwright()
+        if browser and not browser.is_connected():
+            await _cleanup_pw()
         return None
     finally:
         if page:
             try:
-                page.close()
+                await page.close()
             except Exception:
                 pass
 
 
-def extract_video_url(hoster_url, html):
-    """Extract video URL from hoster page HTML. Returns URL string or None."""
+def _extract_stream_playwright(url, hoster_name="unknown"):
+    """Thread-safe wrapper: submits async extraction to the Playwright event loop.
+    Can be called from any Flask thread - runs truly parallel in the async loop."""
+    loop = _ensure_pw_loop()
+    future = asyncio.run_coroutine_threadsafe(
+        _extract_stream_async(url, hoster_name), loop
+    )
     try:
-        # voe.sx (and its rotating domains)
+        return future.result(timeout=20)
+    except concurrent.futures.TimeoutError:
+        log.error(f"{hoster_name}: Playwright extraction timed out (20s) for {url}")
+        return None
+    except Exception as e:
+        log.error(f"{hoster_name}: Playwright extraction error: {e}")
+        return None
+
+
+def extract_video_url(hoster_url, html):
+    """Extract video URL from hoster page HTML. Returns URL string or None.
+    Only VOE and Vidmoly are supported - other hosters are unreliable."""
+    try:
+        # voe.sx (and its rotating domains) - always uses Playwright (WASM obfuscation)
         if "voe" in hoster_url:
             return _extract_voe(hoster_url, html)
         # Check if this is a VOE JS-redirect page (VOE uses rotating domains)
@@ -823,28 +848,7 @@ def extract_video_url(hoster_url, html):
             redirect_url = js_redirect.group(1)
             log.info(f"VOE JS-redirect detected: {redirect_url}")
             return _extract_stream_playwright(redirect_url, "VOE")
-        
-        # vidoza
-        if "vidoza" in hoster_url:
-            m = re.search(r'src:\s*"(https?://[^"]+\.mp4[^"]*)"', html)
-            if m:
-                return m.group(1)
-            m = re.search(r'<source\s+src="(https?://[^"]+)"', html)
-            if m:
-                return m.group(1)
-        
-        # filemoon
-        if "filemoon" in hoster_url:
-            m = re.search(r'file:\s*["\']?(https?://[^"\']+\.m3u8[^"\']*)["\']?', html)
-            if m:
-                return m.group(1)
-            m = re.search(r'sources:\s*\[\{\s*file:\s*["\']?(https?://[^"\']+)["\']?', html)
-            if m:
-                return m.group(1)
-            # Filemoon is a SPA - regex won't work, needs Playwright
-            log.info(f"Filemoon: regex failed, trying Playwright for {hoster_url}")
-            return _extract_stream_playwright(hoster_url, "Filemoon")
-        
+
         # vidmoly
         if "vidmoly" in hoster_url:
             m = re.search(r'file:\s*["\']?(https?://[^"\']+\.m3u8[^"\']*)["\']?', html)
@@ -858,41 +862,11 @@ def extract_video_url(hoster_url, html):
                 return m.group(1)
             log.info(f"Vidmoly: regex failed, trying Playwright for {hoster_url}")
             return _extract_stream_playwright(hoster_url, "Vidmoly")
-        
-        # streamtape
-        if "streamtape" in hoster_url or "stape" in hoster_url:
-            id_m = re.search(r"document\.getElementById\('robotlink'\)\.innerHTML\s*=\s*'([^']*)'", html)
-            token_m = re.search(r"token=([^&'\"]+)", html)
-            if id_m and token_m:
-                return f"https://streamtape.com/get_video?id={id_m.group(1)}&token={token_m.group(1)}"
-            log.info(f"Streamtape: regex failed, trying Playwright for {hoster_url}")
-            return _extract_stream_playwright(hoster_url, "Streamtape")
-        
-        # dood
-        if "dood" in hoster_url or "d0000d" in hoster_url or "ds2play" in hoster_url:
-            m = re.search(r"(/pass_md5/[^'\"]+)", html)
-            if m:
-                return "https://dood.to" + m.group(1)
-            log.info(f"Doodstream: regex failed, trying Playwright for {hoster_url}")
-            return _extract_stream_playwright(hoster_url, "Doodstream")
-        
-        # speedfiles
-        if "speedfiles" in hoster_url:
-            m = re.search(r'var\s+_0x[a-f0-9]+=\s*"(https?://[^"]+)"', html)
-            if m:
-                return m.group(1)
-            log.info(f"Speedfiles: regex failed, trying Playwright for {hoster_url}")
-            return _extract_stream_playwright(hoster_url, "Speedfiles")
-        
-        # Generic fallback: try regex first, then Playwright
-        m = re.search(r"(https?://[^\s\"']+\.(?:m3u8|mp4)(?:\?[^\s\"']*)?)", html)
-        if m:
-            return m.group(1)
-        
-        # Last resort: Playwright for unknown hosters
-        log.info(f"Unknown hoster: regex failed, trying Playwright for {hoster_url}")
-        return _extract_stream_playwright(hoster_url, "unknown")
-    
+
+        # Unsupported hoster - skip
+        log.debug(f"Skipping unsupported hoster: {hoster_url}")
+        return None
+
     except Exception as e:
         log.error(f"Error extracting video URL from {hoster_url}: {e}")
         return None
@@ -1490,7 +1464,7 @@ def nightly_episode_scrape():
             return
 
         log.info(f"CDN refresh: {len(stale)} recently-accessed entries to refresh")
-        HOSTER_PRIORITY = ["VOE", "Vidmoly", "Doodstream", "Streamtape", "Filemoon"]
+        HOSTER_PRIORITY = ["VOE", "Vidmoly"]
         LANG_PRIORITY = [1, 3, 2]
         for row in stale:
             try:
